@@ -1,0 +1,62 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sr-3dgs"
+version = "0.1.0"
+description = "Object-focused video/image to 3D Gaussian Splatting delivery pipeline"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [
+  { name = "SR 3DGS contributors" }
+]
+dependencies = [
+  "numpy>=1.24.0,<2.0.0",
+  "Pillow>=9.0.0",
+  "scikit-learn>=1.0.0",
+  "imageio[ffmpeg]>=2.30.0",
+  "opencv-python>=4.8.0",
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3.10",
+  "Topic :: Multimedia :: Graphics :: 3D Modeling",
+]
+
+[project.optional-dependencies]
+training = [
+  "torch>=2.0.0",
+  "torchmetrics[image]>=1.0.0",
+  "gsplat>=1.3.0",
+]
+sr = [
+  "realesrgan>=0.3.0",
+  "basicsr>=1.4.2",
+]
+optional = [
+  "rembg>=2.0.0",
+  "onnxruntime>=1.16.0",
+]
+all = [
+  "torch>=2.0.0",
+  "torchmetrics[image]>=1.0.0",
+  "gsplat>=1.3.0",
+  "realesrgan>=0.3.0",
+  "basicsr>=1.4.2",
+  "rembg>=2.0.0",
+  "onnxruntime>=1.16.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/sr-3dgs/sr-3dgs"
+Issues = "https://github.com/sr-3dgs/sr-3dgs/issues"
+
+[tool.setuptools.packages.find]
+include = ["sr_3dgs*"]
+
+[tool.setuptools.package-data]
+sr_3dgs = ["py.typed"]

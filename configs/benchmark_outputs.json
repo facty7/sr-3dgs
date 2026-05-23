@@ -1,0 +1,15 @@
+{
+  "scenes": [
+    {
+      "name": "toy",
+      "output": "output/toy",
+      "preview_url": "http://127.0.0.1:8765/output/toy/preview.html",
+      "notes": "Local toy bear demo. Preview URL is optional and requires the local HTTP server."
+    }
+  ],
+  "gates": {
+    "mobile_sog_mb": 12.0,
+    "min_points": 120000,
+    "min_score": 85
+  }
+}

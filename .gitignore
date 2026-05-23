@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local environments and model caches
+.venv/
+venv/
+env/
+models/
+weights/
+
+# Generated reconstruction workspaces
+workspace_video/
+workspace/
+output/
+delivery/
+
+# Media and large local inputs
+input_videos/
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.ply
+*.splat
+*.sog
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+*.bak

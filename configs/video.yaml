@@ -1,0 +1,20 @@
+# Video preset: BasicVSR++ + temporal-aware training
+# Best for: Video frame sequences where temporal coherence matters
+# Speed: Medium (BasicVSR++ processes frames in batches)
+# Quality: Best multi-view consistency due to temporal SR
+
+sr_model: basicvsr++
+sr_scale: 4
+sr_device: cuda
+sr_kwargs:
+  num_frames: 30
+  config_path: ""    # Set path to BasicVSR++ config
+  checkpoint_path: "" # Set path to BasicVSR++ weights
+
+colmap_camera_model: SIMPLE_PINHOLE
+
+train_max_steps: 30000
+train_warmup_steps: 800
+train_sh_degree: 3
+
+cleanup_opacity_thresholds: [0.05, 0.1, 0.15, 0.2]

@@ -1,0 +1,18 @@
+# Quick preset: Real-ESRGAN + default 3DGS training
+# Best for: Client images with mild blur/compression artifacts
+# Speed: Fast (Real-ESRGAN is the fastest SR model)
+# Quality: Good for most commercial jobs
+
+sr_model: real-esrgan
+sr_scale: 4
+sr_device: cuda
+sr_kwargs:
+  model_type: realesr-general-x4v3
+
+colmap_camera_model: SIMPLE_PINHOLE
+
+train_max_steps: 20000
+train_warmup_steps: 500
+train_sh_degree: 3
+
+cleanup_opacity_thresholds: [0.05, 0.1, 0.2]

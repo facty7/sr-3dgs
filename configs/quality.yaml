@@ -1,0 +1,20 @@
+# Quality preset: SUPIR/DAT + MCMC training
+# Best for: Extremely degraded inputs (old surveillance, aerial crops)
+# Speed: Slow (diffusion-based SUPIR or transformer DAT)
+# Quality: Highest photorealism, needs careful validation
+
+sr_model: supir
+sr_scale: 4
+sr_device: cuda
+sr_kwargs:
+  guidance_scale: 7.5
+  num_steps: 50
+  prompt: "high quality, sharp, detailed, photorealistic, natural texture"
+
+colmap_camera_model: PINHOLE
+
+train_max_steps: 40000
+train_warmup_steps: 1500
+train_sh_degree: 4
+
+cleanup_opacity_thresholds: [0.05, 0.1, 0.2, 0.3, 0.5]
