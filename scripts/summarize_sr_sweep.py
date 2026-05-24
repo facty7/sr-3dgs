@@ -45,16 +45,20 @@ def _summarize(output_dir, work_root, mobile_sog_mb, min_points):
     sr_manifest = {}
     sr_strategy = {}
     input_quality = {}
+    colmap_report = {}
     training_summary = {}
     extraction_manifest = {}
     if workspace:
         sr_manifest = _read_json(workspace / "sr_images" / "sr_manifest.json")
         sr_strategy = _read_json(workspace / "reports" / "sr_strategy.json")
         input_quality = _read_json(workspace / "reports" / "input_quality_frames.json")
+        colmap_report = _read_json(workspace / "colmap" / "colmap_report.json")
         training_summary = _read_json(workspace / "train_output" / "training_summary.json")
         extraction_manifest = _read_json(workspace / "frames" / "extraction_manifest.json")
     if not extraction_manifest:
         extraction_manifest = _read_json(output_dir / "reports" / "extraction_manifest.json")
+    if not colmap_report:
+        colmap_report = _read_json(output_dir / "reports" / "colmap_report.json")
 
     selected_frames = extraction_manifest.get("selected_count")
     target_frames = extraction_manifest.get("min_frames")
@@ -92,6 +96,14 @@ def _summarize(output_dir, work_root, mobile_sog_mb, min_points):
         "extraction_temporal_coverage": selected_pass.get("selected_raw_index_coverage"),
         "extraction_temporal_target": temporal_target,
         "extraction_temporal_thinned_count": selected_pass.get("temporal_thinned_count"),
+        "colmap_ok": colmap_report.get("ok"),
+        "colmap_camera_model": colmap_report.get("selected_camera_model") or colmap_report.get("camera_model") or "",
+        "colmap_registered_images": colmap_report.get("registered_images"),
+        "colmap_image_count": colmap_report.get("image_count"),
+        "colmap_registered_ratio": colmap_report.get("registered_ratio"),
+        "colmap_points3d": colmap_report.get("points3d"),
+        "colmap_meets_quality_target": colmap_report.get("meets_quality_target"),
+        "colmap_attempt_count": len(colmap_report.get("attempts") or []),
         "input_score": (input_quality.get("verdict") or {}).get("score"),
         "sog_mb": score["sog_mb"],
         "ply_mb": score["ply_mb"],
@@ -109,8 +121,8 @@ def _print_table(rows):
         return
     headers = [
         "score", "mode", "req", "model", "scale", "eff_x", "fb", "frames",
-        "target", "cov", "span", "pass", "psnr", "train_s", "points", "sog_mb",
-        "ply_mb", "output"
+        "target", "cov", "span", "cam", "cam_ratio", "pass", "psnr", "train_s",
+        "points", "sog_mb", "ply_mb", "output"
     ]
     widths = {h: len(h) for h in headers}
     values = []
@@ -127,6 +139,8 @@ def _print_table(rows):
             "target": _fmt_optional(row.get("extraction_target_frames")),
             "cov": _fmt_ratio(row.get("extraction_coverage_ratio")),
             "span": _fmt_ratio(row.get("extraction_temporal_coverage")),
+            "cam": str(row.get("colmap_camera_model") or "-"),
+            "cam_ratio": _fmt_ratio(row.get("colmap_registered_ratio")),
             "pass": str(row.get("extraction_selected_pass") or "-"),
             "psnr": _fmt_optional(row.get("best_psnr")),
             "train_s": _fmt_optional(row.get("train_sec")),
@@ -168,6 +182,7 @@ def _analysis(rows):
         key=lambda row: (
             _coverage_rank(row),
             _temporal_rank(row),
+            _colmap_rank(row),
             row.get("score", 0),
             row.get("best_psnr") if row.get("best_psnr") is not None else -1,
             row.get("point_count", 0),
@@ -183,6 +198,10 @@ def _analysis(rows):
     low_temporal_rows = [
         row for row in rows
         if _has_low_temporal_coverage(row)
+    ]
+    low_colmap_rows = [
+        row for row in rows
+        if _has_low_colmap_quality(row)
     ]
     relaxed_rows = [row for row in rows if row.get("extraction_relaxed") is True]
     missing_coverage_rows = [
@@ -202,6 +221,10 @@ def _analysis(rows):
         notes.append(
             f"{len(low_temporal_rows)} run(s) cover only part of the source timeline; prefer full-turn coverage for phone videos."
         )
+    if low_colmap_rows:
+        notes.append(
+            f"{len(low_colmap_rows)} run(s) have weak COLMAP registration; review colmap_report.json before trusting training metrics."
+        )
     if relaxed_rows:
         notes.append(
             f"{len(relaxed_rows)} run(s) used relaxed extraction thresholds; inspect the frame contact sheet for blur."
@@ -220,12 +243,15 @@ def _analysis(rows):
         reason = "best available score, but extraction coverage target was missed; capture/rerun coverage should be reviewed first"
     elif _has_low_temporal_coverage(winner):
         reason = "best available score, but selected frames cover only part of the source timeline; review capture coverage first"
+    elif _has_low_colmap_quality(winner):
+        reason = "best available score, but COLMAP registered too few images; review camera reconstruction first"
     return {
         "recommended_output": winner["output"],
         "recommended_reason": reason,
         "fallback_count": len(fallback_rows),
         "low_coverage_count": len(low_coverage_rows),
         "low_temporal_coverage_count": len(low_temporal_rows),
+        "low_colmap_count": len(low_colmap_rows),
         "relaxed_extraction_count": len(relaxed_rows),
         "notes": notes,
     }
@@ -285,6 +311,32 @@ def _has_low_temporal_coverage(row):
         return False
 
 
+def _colmap_rank(row):
+    meets = row.get("colmap_meets_quality_target")
+    if meets is True:
+        return 2
+    if meets is False:
+        return 0
+    ratio = row.get("colmap_registered_ratio")
+    if ratio is None:
+        return 1
+    try:
+        return 2 if float(ratio) >= 0.45 else 0
+    except (TypeError, ValueError):
+        return 1
+
+
+def _has_low_colmap_quality(row):
+    meets = row.get("colmap_meets_quality_target")
+    if meets is False:
+        return True
+    ratio = row.get("colmap_registered_ratio")
+    try:
+        return ratio is not None and float(ratio) < 0.45
+    except (TypeError, ValueError):
+        return False
+
+
 def _temporal_target(extraction_manifest):
     try:
         return float(extraction_manifest.get("min_span"))
@@ -332,6 +384,7 @@ def main():
         key=lambda row: (
             _coverage_rank(row),
             _temporal_rank(row),
+            _colmap_rank(row),
             row["score"],
             row["point_count"],
         ),

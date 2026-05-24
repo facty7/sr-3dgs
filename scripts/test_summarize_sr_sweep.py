@@ -85,6 +85,9 @@ def _write_workspace_meta(
     target_frames: int,
     psnr: float,
     temporal_coverage: float = 1.0,
+    colmap_registered: int = 72,
+    colmap_total: int = 80,
+    colmap_points: int = 5000,
 ):
     (workspace / "sr_images").mkdir(parents=True)
     (workspace / "reports").mkdir()
@@ -121,6 +124,23 @@ def _write_workspace_meta(
     )
     (workspace / "train_output" / "training_summary.json").write_text(
         json.dumps({"best_psnr": psnr, "elapsed_sec": 20.0}),
+        encoding="utf-8",
+    )
+    (workspace / "colmap").mkdir()
+    registered_ratio = round(colmap_registered / max(1, colmap_total), 4)
+    (workspace / "colmap" / "colmap_report.json").write_text(
+        json.dumps({
+            "ok": True,
+            "image_count": colmap_total,
+            "selected_camera_model": "SIMPLE_RADIAL",
+            "registered_images": colmap_registered,
+            "registered_ratio": registered_ratio,
+            "points3d": colmap_points,
+            "min_registered_images": 24,
+            "min_registered_ratio": 0.45,
+            "meets_quality_target": registered_ratio >= 0.45 and colmap_registered >= 24,
+            "attempts": [{"camera_model": "SIMPLE_PINHOLE"}],
+        }),
         encoding="utf-8",
     )
 
@@ -312,6 +332,58 @@ def main():
         assert rows4["phone_partial_x1"]["extraction_temporal_coverage"] == 0.45, data4
         assert data4["analysis"]["low_temporal_coverage_count"] == 1, data4
         assert data4["analysis"]["recommended_output"].endswith("phone_full_x1"), data4
+
+        weak_cam = out_root / "phone_weak_cam_x1"
+        strong_cam = out_root / "phone_strong_cam_x1"
+        _write_min_delivery(weak_cam, weak_cam.name)
+        _write_min_delivery(strong_cam, strong_cam.name)
+        _write_workspace_meta(
+            work_root / weak_cam.name,
+            mode="off",
+            selected_count=90,
+            target_frames=64,
+            psnr=32.0,
+            temporal_coverage=1.0,
+            colmap_registered=12,
+            colmap_total=80,
+            colmap_points=600,
+        )
+        _write_workspace_meta(
+            work_root / strong_cam.name,
+            mode="off",
+            selected_count=90,
+            target_frames=64,
+            psnr=24.0,
+            temporal_coverage=1.0,
+            colmap_registered=70,
+            colmap_total=80,
+            colmap_points=5000,
+        )
+        report5 = root / "summary_colmap.json"
+        subprocess.run(
+            [
+                sys.executable,
+                "scripts/summarize_sr_sweep.py",
+                str(weak_cam),
+                str(strong_cam),
+                "--work_root",
+                str(work_root),
+                "--report",
+                str(report5),
+                "--min_points",
+                "1",
+            ],
+            cwd=str(ROOT),
+            check=True,
+            text=True,
+            capture_output=True,
+        )
+        data5 = json.loads(report5.read_text(encoding="utf-8"))
+        rows5 = {Path(row["output"]).name: row for row in data5["results"]}
+        assert rows5["phone_weak_cam_x1"]["colmap_registered_ratio"] == 0.15, data5
+        assert rows5["phone_weak_cam_x1"]["colmap_meets_quality_target"] is False, data5
+        assert data5["analysis"]["low_colmap_count"] == 1, data5
+        assert data5["analysis"]["recommended_output"].endswith("phone_strong_cam_x1"), data5
 
 
 if __name__ == "__main__":
