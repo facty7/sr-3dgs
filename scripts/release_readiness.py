@@ -44,6 +44,7 @@ REQUIRED_SOURCE_FILES = [
     "scripts/test_super_resolution_modes.py",
     "scripts/test_check_sr_models.py",
     "scripts/test_video_pipeline_input_quality.py",
+    "scripts/test_intrinsic_alignment_cache.py",
     "scripts/test_plan_sr_sweep.py",
     "scripts/test_summarize_sr_sweep.py",
     "scripts/test_crop_ply_by_core.py",

@@ -41,6 +41,7 @@ def main():
         ("super_resolution_modes_unit", [py, "scripts/test_super_resolution_modes.py"]),
         ("sr_model_preflight_unit", [py, "scripts/test_check_sr_models.py"]),
         ("video_pipeline_input_quality_unit", [py, "scripts/test_video_pipeline_input_quality.py"]),
+        ("intrinsic_alignment_cache_unit", [py, "scripts/test_intrinsic_alignment_cache.py"]),
         ("plan_sr_sweep_unit", [py, "scripts/test_plan_sr_sweep.py"]),
         ("summarize_sr_sweep_unit", [py, "scripts/test_summarize_sr_sweep.py"]),
         ("core_crop_unit", [py, "scripts/test_crop_ply_by_core.py"]),

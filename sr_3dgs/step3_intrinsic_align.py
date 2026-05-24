@@ -32,6 +32,7 @@ class IntrinsicAligner:
         self.sr_image_dir = Path(sr_image_dir)
         self.output_dir = Path(output_dir)
         self.scale_factor = scale_factor
+        self.manifest_path = self.output_dir / "alignment_manifest.json"
 
     def run(self, force: bool = False):
         """Scale intrinsics and prepare training data directory."""
@@ -50,6 +51,7 @@ class IntrinsicAligner:
         # Copy/link super-resolved images to output
         sr_images_dir = self.output_dir / "images"
         ensure_dir(sr_images_dir)
+        self._clear_image_dir(sr_images_dir)
         image_name_mapping = self._link_sr_images(images, sr_images_dir)
 
         # Compute image dimensions and per-axis scale factors
@@ -83,7 +85,7 @@ class IntrinsicAligner:
             images, scaled_cameras, image_name_mapping, img_w, img_h
         )
 
-        # ── CRITICAL VALIDATION ──
+        # Critical validation.
         self._validate_intrinsics(image_data, img_w, img_h)
 
         # Extract sparse point cloud for initialization
@@ -185,7 +187,7 @@ class IntrinsicAligner:
         """Scale camera intrinsics by per-axis SR scale factor.
 
         CRITICAL: fx and cx scale with width; fy and cy scale with height.
-        FOV is NOT changed by resolution scaling — only the pixel-space
+        FOV is NOT changed by resolution scaling - only the pixel-space
         representation (fx, fy, cx, cy) scales.
 
         Using a single 'max' factor for both axes is WRONG when the SR
@@ -223,13 +225,13 @@ class IntrinsicAligner:
                 params[0] *= f_scale  # f
                 params[1] *= sw  # cx
                 params[2] *= sh  # cy
-                # k1, k2 are radial distortion — do NOT scale
+                # k1, k2 are radial distortion; do not scale.
             elif model_id in (4, 5, 6):  # OPENCV variants
                 params[0] *= sw  # fx
                 params[1] *= sh  # fy
                 params[2] *= sw  # cx
                 params[3] *= sh  # cy
-                # k1,k2,p1,p2 are distortion — do NOT scale
+                # k1,k2,p1,p2 are distortion; do not scale.
 
             new_cam["params"] = params
             scaled[cam_id] = new_cam
@@ -266,13 +268,13 @@ class IntrinsicAligner:
                 f"cy={cy:.1f} is too far from H/2={H/2:.1f} (image={W}x{H}). " \
                 f"K matrix may not be scaled correctly for SR resolution."
 
-            # 2. FOV should be between 30° and 120° (typical cameras)
+            # 2. FOV should be in a reasonable camera range.
             assert 8.0 <= fov_x <= 160.0, \
-                f"fov_x={fov_x:.1f}° is outside reasonable range [8°, 160°]. " \
+                f"fov_x={fov_x:.1f} deg is outside reasonable range [8, 160]. " \
                 f"fx={fx:.1f}, W={W}. K scaling may be wrong."
 
             assert 8.0 <= fov_y <= 160.0, \
-                f"fov_y={fov_y:.1f}° is outside reasonable range [8°, 160°]. " \
+                f"fov_y={fov_y:.1f} deg is outside reasonable range [8, 160]. " \
                 f"fy={fy:.1f}, H={H}. K scaling may be wrong."
 
             # 3. fx and fy should be roughly similar (non-anamorphic lens)
@@ -293,7 +295,7 @@ class IntrinsicAligner:
         fov_y0 = 2.0 * np.arctan(image_data[0]["height"] / (2.0 * K0[1, 1])) * 180.0 / np.pi
         print(f"[Step3]   Sample K[0]: fx={K0[0,0]:.1f}, fy={K0[1,1]:.1f}, "
               f"cx={K0[0,2]:.1f}, cy={K0[1,2]:.1f}")
-        print(f"[Step3]   FOV: {fov_x0:.2f}° x {fov_y0:.2f}°")
+        print(f"[Step3]   FOV: {fov_x0:.2f} deg x {fov_y0:.2f} deg")
         print(f"[Step3] All {len(image_data)} cameras passed validation.")
 
     def _link_sr_images(self, images: Dict, target_dir: Path) -> Dict:
@@ -329,6 +331,16 @@ class IntrinsicAligner:
                     print(f"  WARNING: SR image for {name} not found in {self.sr_image_dir}")
         print(f"[Step3] Linked {len(mapping)} SR images to output.")
         return mapping
+
+    @staticmethod
+    def _clear_image_dir(target_dir: Path):
+        """Remove old aligned image files before relinking current SR images."""
+        if not target_dir.exists():
+            return
+        image_suffixes = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff"}
+        for path in target_dir.iterdir():
+            if path.is_file() and path.suffix.lower() in image_suffixes:
+                path.unlink()
 
     def _get_sr_image_dims(self, sr_images_dir: Path):
         """Get dimensions of super-resolved images."""
@@ -418,6 +430,101 @@ class IntrinsicAligner:
         }
         with open(self.output_dir / "metadata.json", "w") as f:
             json.dump(metadata, f, indent=2, default=str)
+        self._write_alignment_manifest(eff_scale, linked_image_count=len(transforms))
 
     def _already_done(self) -> bool:
-        return (self.output_dir / "scene_data.npz").exists()
+        if not (self.output_dir / "scene_data.npz").exists():
+            return False
+        if not self.manifest_path.exists():
+            print("[Step3] Existing aligned data has no manifest; regenerating.")
+            return False
+        try:
+            manifest = json.loads(self.manifest_path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            print(f"[Step3] Failed to read alignment manifest: {exc}; regenerating.")
+            return False
+        if manifest.get("signature") != self._alignment_signature():
+            print("[Step3] Existing aligned data is stale; regenerating.")
+            return False
+        return True
+
+    def _write_alignment_manifest(self, eff_scale: dict,
+                                  linked_image_count: int):
+        manifest = {
+            "version": 1,
+            "colmap_sparse_dir": str(self.colmap_sparse_dir),
+            "sr_image_dir": str(self.sr_image_dir),
+            "scale_factor_w": eff_scale["w"],
+            "scale_factor_h": eff_scale["h"],
+            "linked_image_count": int(linked_image_count),
+            "signature": self._alignment_signature(),
+        }
+        self.manifest_path.write_text(
+            json.dumps(manifest, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+    def _alignment_signature(self) -> dict:
+        return {
+            "sr_images": self._image_signatures(self.sr_image_dir),
+            "sr_manifest": self._file_signature(
+                self.sr_image_dir / "sr_manifest.json",
+                relative_to=self.sr_image_dir,
+            ),
+            "colmap_sparse": self._file_signatures(
+                self.colmap_sparse_dir,
+                suffixes={".bin", ".txt"},
+            ),
+        }
+
+    def _image_signatures(self, root: Path) -> list:
+        if not root.exists():
+            return []
+        from PIL import Image
+
+        image_suffixes = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff"}
+        items = []
+        for path in sorted(root.iterdir()):
+            if not path.is_file() or path.suffix.lower() not in image_suffixes:
+                continue
+            item = self._file_signature(path, relative_to=root)
+            if item is None:
+                continue
+            try:
+                with Image.open(path) as img:
+                    item["width"], item["height"] = img.size
+            except Exception:
+                item["width"], item["height"] = None, None
+            items.append(item)
+        return items
+
+    def _file_signatures(self, root: Path, suffixes: set) -> list:
+        if not root.exists():
+            return []
+        items = []
+        for path in sorted(root.rglob("*")):
+            if not path.is_file() or path.suffix.lower() not in suffixes:
+                continue
+            item = self._file_signature(path, relative_to=root)
+            if item is not None:
+                items.append(item)
+        return items
+
+    @staticmethod
+    def _file_signature(path: Path, relative_to: Optional[Path] = None):
+        try:
+            stat = path.stat()
+        except FileNotFoundError:
+            return None
+        if relative_to:
+            try:
+                name = str(path.relative_to(relative_to)).replace("\\", "/")
+            except ValueError:
+                name = path.name
+        else:
+            name = path.name
+        return {
+            "path": name,
+            "size": int(stat.st_size),
+            "mtime_ns": int(stat.st_mtime_ns),
+        }
