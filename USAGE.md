@@ -114,8 +114,11 @@ scale, while `effective_scale` is what actually reached training.
 `model_preflight` records whether local weights were found or a download was
 needed. Add `--sr_strict_model` when a learned-SR run should fail instead of
 falling back. In `--sr_mode auto`, learned SR is selected only when the needed
-weights are already local and extraction coverage is healthy; add
-`--sr_allow_download` to permit automatic weight downloads.
+weights are already local, extraction coverage is healthy, and the input report
+does not show strong multi-view consistency risks such as near-duplicate
+frames, exposure jumps, low contrast, or clipped frames. The auto decision
+stores these risk flags in `reports/sr_strategy.json`; add `--sr_allow_download`
+to permit automatic weight downloads.
 
 Plan a reproducible sweep without starting heavy jobs:
 

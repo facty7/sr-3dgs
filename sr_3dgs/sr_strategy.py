@@ -26,6 +26,7 @@ class SRStrategy:
     extraction_coverage_ratio: Optional[float] = None
     extraction_temporal_coverage: Optional[float] = None
     extraction_selected_pass: Optional[str] = None
+    sr_risk_flags: Optional[list] = None
     vram_gb: Optional[float] = None
     model_preflight: Optional[Dict[str, Any]] = None
 
@@ -69,6 +70,7 @@ def recommend_sr_strategy(
     temporal_coverage = _selected_temporal_coverage(extraction)
     temporal_target = _temporal_target(extraction)
     selected_pass = extraction.get("selected_pass")
+    risk_flags = _sr_risk_flags(report, problems)
 
     preferred_scale = int(preferred_scale or 2)
     preferred_scale = 2 if preferred_scale <= 1 else min(preferred_scale, 2)
@@ -86,6 +88,7 @@ def recommend_sr_strategy(
             extraction_coverage_ratio=coverage_ratio,
             extraction_temporal_coverage=temporal_coverage,
             extraction_selected_pass=selected_pass,
+            sr_risk_flags=risk_flags,
             vram_gb=vram_gb,
         )
 
@@ -102,6 +105,7 @@ def recommend_sr_strategy(
             extraction_coverage_ratio=coverage_ratio,
             extraction_temporal_coverage=temporal_coverage,
             extraction_selected_pass=selected_pass,
+            sr_risk_flags=risk_flags,
             vram_gb=vram_gb,
         )
 
@@ -127,6 +131,27 @@ def recommend_sr_strategy(
             extraction_coverage_ratio=coverage_ratio,
             extraction_temporal_coverage=temporal_coverage,
             extraction_selected_pass=selected_pass,
+            sr_risk_flags=risk_flags,
+            vram_gb=vram_gb,
+        )
+
+    if risk_flags:
+        return SRStrategy(
+            mode="resize",
+            model=preferred_model,
+            scale=preferred_scale,
+            reason=(
+                "input has multi-view consistency risks; use deterministic "
+                "resize instead of learned SR"
+            ),
+            input_score=score,
+            sharpness_p10=sharp_p10,
+            frame_count=frame_count,
+            long_edge=long_edge,
+            extraction_coverage_ratio=coverage_ratio,
+            extraction_temporal_coverage=temporal_coverage,
+            extraction_selected_pass=selected_pass,
+            sr_risk_flags=risk_flags,
             vram_gb=vram_gb,
         )
 
@@ -143,6 +168,7 @@ def recommend_sr_strategy(
             extraction_coverage_ratio=coverage_ratio,
             extraction_temporal_coverage=temporal_coverage,
             extraction_selected_pass=selected_pass,
+            sr_risk_flags=risk_flags,
             vram_gb=vram_gb,
         )
 
@@ -159,6 +185,7 @@ def recommend_sr_strategy(
             extraction_coverage_ratio=coverage_ratio,
             extraction_temporal_coverage=temporal_coverage,
             extraction_selected_pass=selected_pass,
+            sr_risk_flags=risk_flags,
             vram_gb=vram_gb,
         )
 
@@ -174,6 +201,7 @@ def recommend_sr_strategy(
         extraction_coverage_ratio=coverage_ratio,
         extraction_temporal_coverage=temporal_coverage,
         extraction_selected_pass=selected_pass,
+        sr_risk_flags=risk_flags,
         vram_gb=vram_gb,
     )
 
@@ -206,6 +234,47 @@ def _temporal_target(extraction: Dict[str, Any]) -> float:
         return float(extraction.get("min_span"))
     except (TypeError, ValueError):
         return 0.80
+
+
+def _sr_risk_flags(report: Dict[str, Any], problems) -> list:
+    flags = []
+    problem_risks = {
+        "near_duplicate_frames",
+        "large_view_jumps_or_exposure_changes",
+        "bad_exposure_frames",
+        "low_contrast_frames",
+        "clipped_frames",
+    }
+    for name in sorted(problem_risks & set(problems or [])):
+        flags.append(name)
+
+    images = report.get("images", {})
+    frame_diff = images.get("frame_diff") or {}
+    frame_health = images.get("frame_health") or {}
+    if _lt(frame_diff.get("p50"), 0.015):
+        flags.append("near_duplicate_frames")
+    if _gt(frame_diff.get("p90"), 0.22):
+        flags.append("large_view_jumps_or_exposure_changes")
+    if _lt((frame_health.get("contrast") or {}).get("p10"), 5):
+        flags.append("low_contrast_frames")
+    if _gt((frame_health.get("clipped_ratio") or {}).get("p90"), 0.55):
+        flags.append("clipped_frames")
+
+    return sorted(set(flags))
+
+
+def _lt(value, threshold):
+    try:
+        return value is not None and float(value) < float(threshold)
+    except (TypeError, ValueError):
+        return False
+
+
+def _gt(value, threshold):
+    try:
+        return value is not None and float(value) > float(threshold)
+    except (TypeError, ValueError):
+        return False
 
 
 def write_strategy(path: str | Path, strategy: SRStrategy):

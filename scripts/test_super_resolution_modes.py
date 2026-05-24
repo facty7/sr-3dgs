@@ -178,6 +178,7 @@ def main():
         }, preferred_scale=4, vram_gb=24)
         assert model_strategy.mode == "model", model_strategy
         assert model_strategy.scale == 2, model_strategy
+        assert model_strategy.sr_risk_flags == [], model_strategy
         adjusted = adjust_strategy_for_model_preflight(
             model_strategy,
             {"ok": True, "needs_download": True, "weights_exist": False},
@@ -239,6 +240,23 @@ def main():
         }, preferred_scale=2, vram_gb=24)
         assert low_span_strategy.mode == "off", low_span_strategy
         assert low_span_strategy.extraction_temporal_coverage == 0.45, low_span_strategy
+
+        risky_strategy = recommend_sr_strategy({
+            "images": {
+                "count": 80,
+                "dimensions_first_sample": [960, 540],
+                "sharpness_laplacian": {"p10": 100.0},
+                "frame_diff": {"p50": 0.008, "p90": 0.26},
+                "frame_health": {
+                    "contrast": {"p10": 12.0},
+                    "clipped_ratio": {"p90": 0.10},
+                },
+            },
+            "verdict": {"score": 84, "problems": []},
+        }, preferred_scale=2, vram_gb=24)
+        assert risky_strategy.mode == "resize", risky_strategy
+        assert "near_duplicate_frames" in risky_strategy.sr_risk_flags, risky_strategy
+        assert "large_view_jumps_or_exposure_changes" in risky_strategy.sr_risk_flags, risky_strategy
 
         blurry_strategy = recommend_sr_strategy({
             "images": {
