@@ -203,7 +203,7 @@ def write_delivery_report(delivery_dir, scene_name, results, diagnostics):
         )
 
     reports_dir = delivery / "reports"
-    for key in ("sr_manifest", "training_summary", "input_quality_frames", "input_quality_object"):
+    for key in ("sr_manifest", "training_summary", "colmap_report", "input_quality_frames", "input_quality_object"):
         _copy_report_pair(results, files, key, reports_dir)
 
     (delivery / "reports").mkdir(parents=True, exist_ok=True)
@@ -232,6 +232,7 @@ Start here:
 - High-quality professional asset: `professional/*_standard.ply`
 - Legacy splat fallback: `web/splat/*.splat`
 - Diagnostics: `reports/diagnostics.json`
+- Camera reconstruction quality: `reports/colmap_report.json`
 - Input capture quality: `reports/input_quality_*.html`
 
 Only deliver this folder when `manifest.json` has `"ok": true`.

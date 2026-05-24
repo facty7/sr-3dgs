@@ -57,6 +57,12 @@ also filters clearly unusable exposure/contrast frames before blur and
 near-duplicate checks; override the brightness, contrast, and clipped-ratio
 thresholds on `VideoPipelineConfig` for unusual capture conditions.
 
+`PipelineConfig` and `VideoPipelineConfig` expose COLMAP fallback controls:
+`colmap_camera_model`, `colmap_camera_fallbacks`,
+`colmap_min_registered_ratio`, and `colmap_min_registered_images`. Each run
+writes `colmap/colmap_report.json` with the selected camera model and
+registered-image statistics.
+
 ## Stable Building Blocks
 
 Many workflows are currently easier to compose through scripts:

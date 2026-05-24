@@ -87,6 +87,12 @@ def build_parser():
                    help="Path to COLMAP executable")
     p.add_argument("--colmap_camera", type=str, default="SIMPLE_PINHOLE",
                    help="COLMAP camera model")
+    p.add_argument("--colmap_camera_fallbacks", type=str, default="SIMPLE_RADIAL,PINHOLE",
+                   help="Comma-separated fallback camera models for weak COLMAP reconstructions")
+    p.add_argument("--colmap_min_registered_ratio", type=float, default=0.45,
+                   help="Minimum registered-image ratio before trying COLMAP fallbacks")
+    p.add_argument("--colmap_min_registered_images", type=int, default=24,
+                   help="Minimum registered-image count before trying COLMAP fallbacks")
     p.add_argument("--colmap_gpu", type=int, default=0,
                    help="GPU index for COLMAP")
 
@@ -135,6 +141,11 @@ def main():
         sr_strict_model=args.sr_strict_model,
         colmap_path=args.colmap_path,
         colmap_camera_model=args.colmap_camera,
+        colmap_camera_fallbacks=tuple(
+            v.strip() for v in args.colmap_camera_fallbacks.split(",") if v.strip()
+        ),
+        colmap_min_registered_ratio=args.colmap_min_registered_ratio,
+        colmap_min_registered_images=args.colmap_min_registered_images,
         colmap_gpu=args.colmap_gpu,
         train_max_steps=args.max_steps,
         train_warmup_steps=args.warmup_steps,

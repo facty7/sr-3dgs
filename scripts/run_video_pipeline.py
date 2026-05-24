@@ -161,6 +161,14 @@ def main():
     parser.add_argument("--projection", type=str, default="auto",
                         choices=["auto", "perspective", "equirectangular"],
                         help="Input video projection. Auto treats ~2:1 video as 360 equirectangular.")
+    parser.add_argument("--colmap_camera", type=str, default=None,
+                        help="Primary COLMAP camera model")
+    parser.add_argument("--colmap_camera_fallbacks", type=str, default=None,
+                        help="Comma-separated fallback camera models for weak COLMAP reconstructions")
+    parser.add_argument("--colmap_min_registered_ratio", type=float, default=None,
+                        help="Minimum registered-image ratio before trying COLMAP fallbacks")
+    parser.add_argument("--colmap_min_registered_images", type=int, default=None,
+                        help="Minimum registered-image count before trying COLMAP fallbacks")
 
     # Frame extraction overrides
     parser.add_argument("--extract_fps", type=float, default=None)
@@ -279,6 +287,22 @@ def run_single(args):
         final_output_dir=args.final_output_dir,
         output_name=args.output_name,
         projection=args.projection,
+        colmap_camera_model=args.colmap_camera or preset.get("colmap_camera_model", "SIMPLE_PINHOLE"),
+        colmap_camera_fallbacks=(
+            tuple(v.strip() for v in args.colmap_camera_fallbacks.split(",") if v.strip())
+            if args.colmap_camera_fallbacks is not None
+            else tuple(preset.get("colmap_camera_fallbacks", ("SIMPLE_RADIAL", "PINHOLE")))
+        ),
+        colmap_min_registered_ratio=(
+            args.colmap_min_registered_ratio
+            if args.colmap_min_registered_ratio is not None
+            else preset.get("colmap_min_registered_ratio", 0.45)
+        ),
+        colmap_min_registered_images=(
+            args.colmap_min_registered_images
+            if args.colmap_min_registered_images is not None
+            else preset.get("colmap_min_registered_images", 24)
+        ),
         extract_fps=args.extract_fps or preset.get("extract_fps", 3.0),
         extract_min_sharpness=preset.get("extract_min_sharpness", 80.0),
         extract_min_frame_diff=preset.get("extract_min_frame_diff", 0.02),

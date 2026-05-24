@@ -36,6 +36,9 @@ class PipelineConfig:
 
     # Step 1: COLMAP
     colmap_camera_model: str = "SIMPLE_PINHOLE"
+    colmap_camera_fallbacks: tuple = ("SIMPLE_RADIAL", "PINHOLE")
+    colmap_min_registered_ratio: float = 0.45
+    colmap_min_registered_images: int = 24
     colmap_path: str = "colmap"
     colmap_gpu: int = 0
 
@@ -184,10 +187,15 @@ class Pipeline:
             camera_model=cfg.colmap_camera_model,
             colmap_path=cfg.colmap_path,
             gpu_index=cfg.colmap_gpu,
+            camera_model_candidates=cfg.colmap_camera_fallbacks,
+            min_registered_ratio=cfg.colmap_min_registered_ratio,
+            min_registered_images=cfg.colmap_min_registered_images,
         )
         self._step_results["colmap_sparse"] = extractor.run(
             force=not cfg.skip_existing
         )
+        if extractor.report_path.exists():
+            self._step_results["colmap_report"] = str(extractor.report_path)
 
     def run_step2(self):
         """Step 2: Super-resolve all images."""

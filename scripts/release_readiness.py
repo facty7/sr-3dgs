@@ -40,6 +40,7 @@ REQUIRED_SOURCE_FILES = [
     "scripts/test_candidate_compare.py",
     "scripts/test_assess_scene_inputs.py",
     "scripts/test_video_extractor_adaptive.py",
+    "scripts/test_colmap_fallbacks.py",
     "scripts/test_super_resolution_modes.py",
     "scripts/test_check_sr_models.py",
     "scripts/test_video_pipeline_input_quality.py",

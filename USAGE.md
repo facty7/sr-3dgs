@@ -68,6 +68,20 @@ and duplicate checks; tune this with `--extract_min_brightness`,
 `--extract_max_brightness`, `--extract_min_contrast`, and
 `--extract_max_clipped_ratio` for unusual footage.
 
+## COLMAP Reconstruction Health
+
+The pipeline writes `workspace_video/<scene>/colmap/colmap_report.json` after
+camera reconstruction. It records the registered-image count, registration
+ratio, sparse point count, selected camera model, and any fallback attempts.
+If the primary model is weak, tune the fallback list:
+
+```bash
+python scripts/run_video_pipeline.py --video input_videos/object.mp4 \
+  --preset standard \
+  --colmap_camera SIMPLE_PINHOLE \
+  --colmap_camera_fallbacks SIMPLE_RADIAL,PINHOLE
+```
+
 ## Super-Resolution Modes
 
 Use explicit SR modes when comparing output quality:

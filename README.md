@@ -21,7 +21,7 @@ texture, and scene stability.
 
 - Phone video and image-folder inputs.
 - Perspective and equirectangular frame extraction.
-- COLMAP-based camera reconstruction.
+- COLMAP-based camera reconstruction with camera-model fallback reports.
 - gsplat training entry points.
 - Optional object crop, automatic masks, and mask-aware training.
 - Automatic cleanup for detached clusters, sparse floaters, and haze-like
@@ -186,6 +186,10 @@ The assessment covers frame count, blur, exposure, contrast, near-duplicates,
 large viewpoint jumps, foreground-mask size, and masks touching image
 boundaries.
 
+COLMAP writes `workspace_video/<scene>/colmap/colmap_report.json` with the
+registered-image count, registration ratio, 3D point count, and any fallback
+camera-model attempts. This report is copied into delivery folders.
+
 ## Validate And Preview
 
 ```bash
@@ -234,7 +238,7 @@ Implemented:
 
 - video and image-folder orchestration
 - perspective and equirectangular frame extraction
-- COLMAP/pycolmap camera preparation
+- COLMAP/pycolmap camera preparation with fallback reporting
 - gsplat training entry points
 - standard PLY export
 - PlayCanvas SOG viewer export

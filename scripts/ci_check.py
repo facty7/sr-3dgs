@@ -37,6 +37,7 @@ def main():
         ("candidate_compare_unit", [py, "scripts/test_candidate_compare.py"]),
         ("scene_input_unit", [py, "scripts/test_assess_scene_inputs.py"]),
         ("video_extractor_adaptive_unit", [py, "scripts/test_video_extractor_adaptive.py"]),
+        ("colmap_fallbacks_unit", [py, "scripts/test_colmap_fallbacks.py"]),
         ("super_resolution_modes_unit", [py, "scripts/test_super_resolution_modes.py"]),
         ("sr_model_preflight_unit", [py, "scripts/test_check_sr_models.py"]),
         ("video_pipeline_input_quality_unit", [py, "scripts/test_video_pipeline_input_quality.py"]),

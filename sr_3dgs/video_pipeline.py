@@ -81,6 +81,9 @@ class VideoPipelineConfig:
 
     # COLMAP settings
     colmap_camera_model: str = "SIMPLE_PINHOLE"
+    colmap_camera_fallbacks: tuple = ("SIMPLE_RADIAL", "PINHOLE")
+    colmap_min_registered_ratio: float = 0.45
+    colmap_min_registered_images: int = 24
     colmap_gpu: int = 0
 
     # Training
@@ -344,6 +347,9 @@ class VideoPipeline:
             sr_frame_timeout_s=cfg.sr_frame_timeout_s,
             sr_strict_model=cfg.sr_strict_model,
             colmap_camera_model=cfg.colmap_camera_model,
+            colmap_camera_fallbacks=cfg.colmap_camera_fallbacks,
+            colmap_min_registered_ratio=cfg.colmap_min_registered_ratio,
+            colmap_min_registered_images=cfg.colmap_min_registered_images,
             colmap_gpu=cfg.colmap_gpu,
             train_max_steps=cfg.train_max_steps,
             train_warmup_steps=cfg.train_warmup_steps,
@@ -360,6 +366,9 @@ class VideoPipeline:
 
         pipeline = Pipeline(pipeline_cfg)
         pipeline.run(start_step=1, end_step=3)
+        colmap_report = pipeline._step_results.get("colmap_report")
+        if colmap_report:
+            results["colmap_report"] = str(colmap_report)
         sr_manifest = pipeline._step_results.get("sr_manifest")
         if sr_manifest:
             results["sr_manifest"] = str(sr_manifest)
