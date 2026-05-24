@@ -47,9 +47,10 @@ http://127.0.0.1:8765/output/object/START_HERE.html
 ## Adaptive Frame Extraction
 
 Video frame extraction is adaptive by default. It starts with the preset
-blur/diversity thresholds and relaxes them only when too few frames survive for
-coverage. This is meant for ordinary phone captures where motion blur and
-near-duplicate frames vary across the clip.
+blur, exposure, contrast, timeline-span, and diversity thresholds. It relaxes
+sharpness/diversity only when too few frames survive for coverage. This is
+meant for ordinary phone captures where motion blur, auto-exposure changes,
+and near-duplicate frames vary across the clip.
 
 ```bash
 python scripts/run_video_pipeline.py --video input_videos/object.mp4 \
@@ -62,6 +63,10 @@ selected extraction pass in
 is the required selected-frame coverage across the source timeline. This helps
 ordinary turntable-style phone videos avoid runs where enough frames survived
 but they came from only part of the orbit.
+Very dark, overexposed, clipped, or near-flat frames are filtered before blur
+and duplicate checks; tune this with `--extract_min_brightness`,
+`--extract_max_brightness`, `--extract_min_contrast`, and
+`--extract_max_clipped_ratio` for unusual footage.
 
 ## Super-Resolution Modes
 

@@ -47,6 +47,37 @@ def frame_difference(img1: np.ndarray, img2: np.ndarray) -> float:
     return float(diff)
 
 
+def frame_health_stats(img: np.ndarray) -> dict:
+    """Return exposure/contrast stats for a uint8 RGB frame."""
+    import cv2
+
+    gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+    return {
+        "mean": float(np.mean(gray)),
+        "std": float(np.std(gray)),
+        "dark_ratio": float(np.mean(gray <= 5)),
+        "bright_ratio": float(np.mean(gray >= 250)),
+    }
+
+
+def is_frame_well_exposed(
+    img: np.ndarray,
+    *,
+    min_brightness: float = 8.0,
+    max_brightness: float = 247.0,
+    min_contrast: float = 4.0,
+    max_clipped_ratio: float = 0.92,
+) -> Tuple[bool, dict]:
+    stats = frame_health_stats(img)
+    ok = (
+        stats["mean"] >= min_brightness
+        and stats["mean"] <= max_brightness
+        and stats["std"] >= min_contrast
+        and max(stats["dark_ratio"], stats["bright_ratio"]) <= max_clipped_ratio
+    )
+    return ok, stats
+
+
 def _coverage_target(raw_count: int, max_frames: int, min_frames: Optional[int]) -> int:
     if raw_count <= 0 or max_frames <= 0:
         return 0
@@ -87,6 +118,10 @@ def _filter_raw_frames(
     *,
     min_sharpness: float,
     min_frame_diff: float,
+    min_brightness: float,
+    max_brightness: float,
+    min_contrast: float,
+    max_clipped_ratio: float,
     max_frames: int,
 ):
     import cv2
@@ -98,6 +133,10 @@ def _filter_raw_frames(
     diff_values = []
     skipped_blur = 0
     skipped_duplicate = 0
+    skipped_exposure = 0
+    brightness_values = []
+    contrast_values = []
+    clipped_values = []
     unreadable = 0
 
     for raw_index, fpath in enumerate(raw_frames):
@@ -106,6 +145,20 @@ def _filter_raw_frames(
             unreadable += 1
             continue
         img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+        exposure_ok, exposure_stats = is_frame_well_exposed(
+            img_rgb,
+            min_brightness=min_brightness,
+            max_brightness=max_brightness,
+            min_contrast=min_contrast,
+            max_clipped_ratio=max_clipped_ratio,
+        )
+        brightness_values.append(exposure_stats["mean"])
+        contrast_values.append(exposure_stats["std"])
+        clipped_values.append(max(exposure_stats["dark_ratio"], exposure_stats["bright_ratio"]))
+        if not exposure_ok:
+            skipped_exposure += 1
+            continue
 
         is_sharp, lap_var = detect_blur_laplacian(img_rgb, min_sharpness)
         lap_values.append(float(lap_var))
@@ -141,10 +194,20 @@ def _filter_raw_frames(
         "eligible_count": eligible_count,
         "kept_count": len(kept),
         "skipped_blur": skipped_blur,
+        "skipped_bad_exposure": skipped_exposure,
         "skipped_near_duplicate": skipped_duplicate,
         "unreadable": unreadable,
         "temporal_thinned_count": max(0, eligible_count - len(kept)),
     }
+    if brightness_values:
+        stats["brightness_p10"] = float(np.percentile(brightness_values, 10))
+        stats["brightness_p50"] = float(np.percentile(brightness_values, 50))
+        stats["brightness_p90"] = float(np.percentile(brightness_values, 90))
+    if contrast_values:
+        stats["contrast_p10"] = float(np.percentile(contrast_values, 10))
+        stats["contrast_p50"] = float(np.percentile(contrast_values, 50))
+    if clipped_values:
+        stats["clipped_ratio_p90"] = float(np.percentile(clipped_values, 90))
     if lap_values:
         stats["sharpness_min"] = float(np.min(lap_values))
         stats["sharpness_p10"] = float(np.percentile(lap_values, 10))
@@ -219,6 +282,10 @@ def select_frames_adaptive(
     max_frames: int,
     min_frames: Optional[int] = None,
     min_span: Optional[float] = 0.80,
+    min_brightness: float = 8.0,
+    max_brightness: float = 247.0,
+    min_contrast: float = 4.0,
+    max_clipped_ratio: float = 0.92,
     adaptive: bool = True,
 ):
     """Select raw frames, relaxing thresholds when count or timeline coverage is low."""
@@ -235,6 +302,10 @@ def select_frames_adaptive(
             raw_frames,
             min_sharpness=sharp,
             min_frame_diff=diff,
+            min_brightness=min_brightness,
+            max_brightness=max_brightness,
+            min_contrast=min_contrast,
+            max_clipped_ratio=max_clipped_ratio,
             max_frames=max_frames,
         )
         stats["name"] = name
@@ -265,12 +336,17 @@ def select_frames_adaptive(
         "min_span": float(target_span),
         "requested_min_sharpness": float(min_sharpness),
         "requested_min_frame_diff": float(min_frame_diff),
+        "requested_min_brightness": float(min_brightness),
+        "requested_max_brightness": float(max_brightness),
+        "requested_min_contrast": float(min_contrast),
+        "requested_max_clipped_ratio": float(max_clipped_ratio),
         "adaptive": bool(adaptive),
         "selected_count": len(selected),
         "selected_span": selected_stats.get("selected_raw_index_coverage"),
         "selected_meets_frame_target": selected_stats.get("meets_frame_target"),
         "selected_meets_span_target": selected_stats.get("meets_span_target"),
         "selected_meets_target": selected_stats.get("meets_target"),
+        "selected_skipped_bad_exposure": selected_stats.get("skipped_bad_exposure", 0),
         "selected_pass": selected_stats.get("name", ""),
         "relaxed": selected_stats.get("name", "strict") != "strict",
         "passes": pass_reports,
@@ -326,6 +402,10 @@ class VideoFrameExtractor:
                 max_frames: int = 300,
                 min_frames: Optional[int] = 48,
                 min_span: Optional[float] = 0.80,
+                min_brightness: float = 8.0,
+                max_brightness: float = 247.0,
+                min_contrast: float = 4.0,
+                max_clipped_ratio: float = 0.92,
                 adaptive: bool = True,
                 target_long_edge: int = 1920,
                 start_time: Optional[float] = None,
@@ -340,6 +420,10 @@ class VideoFrameExtractor:
             max_frames: Maximum frames to extract
             min_frames: Desired minimum kept frames before relaxing filters
             min_span: Desired selected-frame coverage across the source timeline
+            min_brightness: Drop frames with mean luma below this value
+            max_brightness: Drop frames with mean luma above this value
+            min_contrast: Drop frames with grayscale stddev below this value
+            max_clipped_ratio: Drop frames where dark or bright clipping exceeds this ratio
             adaptive: Relax quality/diversity thresholds when coverage is low
             target_long_edge: Resize so long edge = this (0 = no resize)
             start_time: Start time in seconds (None = beginning)
@@ -377,6 +461,10 @@ class VideoFrameExtractor:
             max_frames=max_frames,
             min_frames=min_frames,
             min_span=min_span,
+            min_brightness=min_brightness,
+            max_brightness=max_brightness,
+            min_contrast=min_contrast,
+            max_clipped_ratio=max_clipped_ratio,
             adaptive=adaptive,
         )
 
@@ -424,6 +512,10 @@ class VideoFrameExtractor:
                 f"timeline; target is {float(manifest.get('min_span') or 0.0):.2f}."
             )
 
+        skipped_exposure = int(manifest.get("selected_skipped_bad_exposure") or 0)
+        if skipped_exposure:
+            print(f"[VideoExtractor] Skipped {skipped_exposure} badly exposed or low-contrast frames.")
+
         if len(kept_paths) < 15:
             print("[VideoExtractor] WARNING: Few frames kept. "
                   "Lower min_sharpness or min_frame_diff for better coverage.")
@@ -437,6 +529,10 @@ class VideoFrameExtractor:
                                           max_source_frames: int = 80,
                                           min_source_frames: Optional[int] = 12,
                                           min_span: Optional[float] = 0.80,
+                                          min_brightness: float = 8.0,
+                                          max_brightness: float = 247.0,
+                                          min_contrast: float = 4.0,
+                                          max_clipped_ratio: float = 0.92,
                                           adaptive: bool = True,
                                           face_size: int = 1024,
                                           faces: Tuple[str, ...] = ("front", "right", "back", "left"),
@@ -464,6 +560,10 @@ class VideoFrameExtractor:
             max_frames=max_source_frames,
             min_frames=min_source_frames,
             min_span=min_span,
+            min_brightness=min_brightness,
+            max_brightness=max_brightness,
+            min_contrast=min_contrast,
+            max_clipped_ratio=max_clipped_ratio,
             adaptive=adaptive,
         )
 

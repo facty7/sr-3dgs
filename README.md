@@ -143,8 +143,9 @@ when the needed weights are already local and extraction coverage is healthy;
 set `--sr_allow_download` to permit first-run weight downloads.
 
 Frame extraction is adaptive by default. The extractor first applies the preset
-blur/diversity filters, then relaxes them only if too few views survive for
-stable reconstruction. The selected pass, thresholds, and kept raw frames are
+blur, exposure, contrast, timeline-span, and diversity filters, then relaxes
+sharpness/diversity only if too few views survive for stable reconstruction.
+The selected pass, thresholds, skipped-frame counts, and kept raw frames are
 recorded in `workspace_video/<scene>/frames/extraction_manifest.json`.
 
 Optional object crop:
@@ -181,8 +182,9 @@ python scripts/assess_scene_inputs.py workspace_video/object \
   `--object_mask auto` is enabled
 - `workspace_video/<scene>/frames/extraction_manifest.json`
 
-The assessment covers frame count, blur, near-duplicates, large viewpoint
-jumps, foreground-mask size, and masks touching image boundaries.
+The assessment covers frame count, blur, exposure, contrast, near-duplicates,
+large viewpoint jumps, foreground-mask size, and masks touching image
+boundaries.
 
 ## Validate And Preview
 

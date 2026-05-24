@@ -22,6 +22,17 @@ def _write_mask(path):
     Image.fromarray(arr).save(path)
 
 
+def _write_bad_health_rgb(path, idx):
+    arr = np.zeros((48, 64, 3), dtype=np.uint8)
+    if idx % 3 == 0:
+        arr[:, :] = 0
+    elif idx % 3 == 1:
+        arr[:, :] = 255
+    else:
+        arr[:, :] = 128
+    Image.fromarray(arr).save(path)
+
+
 def main():
     with tempfile.TemporaryDirectory() as tmp:
         scene = Path(tmp) / "scene"
@@ -44,6 +55,18 @@ def main():
         assert Path(report["masks"]["path"]).parts[-2:] == ("subject_masked", "masks"), report
         assert report["masks"]["count"] == 6, report
         assert 0 <= report["verdict"]["score"] <= 100, report
+
+        bad_scene = Path(tmp) / "bad_scene"
+        bad_images = bad_scene / "frames"
+        bad_images.mkdir(parents=True)
+        for idx in range(9):
+            _write_bad_health_rgb(bad_images / f"frame_{idx:03d}.png", idx)
+
+        bad_report = assess_scene(bad_scene, images_dir=bad_images, masks_dir=bad_scene / "missing")
+        assert "frame_health" in bad_report["images"], bad_report
+        problems = set(bad_report["verdict"]["problems"])
+        assert "bad_exposure_frames" in problems, bad_report
+        assert "low_contrast_frames" in problems, bad_report
 
 
 if __name__ == "__main__":

@@ -169,6 +169,14 @@ def main():
                         help="Desired kept-frame coverage before adaptive extraction relaxes filters")
     parser.add_argument("--extract_min_span", type=float, default=None,
                         help="Desired selected-frame timeline coverage before accepting an extraction pass")
+    parser.add_argument("--extract_min_brightness", type=float, default=None,
+                        help="Drop frames with mean luma below this value")
+    parser.add_argument("--extract_max_brightness", type=float, default=None,
+                        help="Drop frames with mean luma above this value")
+    parser.add_argument("--extract_min_contrast", type=float, default=None,
+                        help="Drop frames with grayscale stddev below this value")
+    parser.add_argument("--extract_max_clipped_ratio", type=float, default=None,
+                        help="Drop frames whose dark or bright clipped pixel ratio exceeds this value")
     parser.add_argument("--no_adaptive_extract", action="store_true",
                         help="Disable adaptive relaxation of blur/diversity thresholds")
     parser.add_argument("--start_time", type=float, default=None,
@@ -280,6 +288,26 @@ def run_single(args):
             args.extract_min_span
             if args.extract_min_span is not None
             else preset.get("extract_min_span", 0.80)
+        ),
+        extract_min_brightness=(
+            args.extract_min_brightness
+            if args.extract_min_brightness is not None
+            else preset.get("extract_min_brightness", 8.0)
+        ),
+        extract_max_brightness=(
+            args.extract_max_brightness
+            if args.extract_max_brightness is not None
+            else preset.get("extract_max_brightness", 247.0)
+        ),
+        extract_min_contrast=(
+            args.extract_min_contrast
+            if args.extract_min_contrast is not None
+            else preset.get("extract_min_contrast", 4.0)
+        ),
+        extract_max_clipped_ratio=(
+            args.extract_max_clipped_ratio
+            if args.extract_max_clipped_ratio is not None
+            else preset.get("extract_max_clipped_ratio", 0.92)
         ),
         extract_adaptive=not args.no_adaptive_extract,
         equirect_face_size=args.equirect_face_size,

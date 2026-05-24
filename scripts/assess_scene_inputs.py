@@ -107,6 +107,14 @@ def _sharpness(gray):
     return float(cv2.Laplacian(gray, cv2.CV_64F).var())
 
 
+def _frame_health(gray):
+    return {
+        "brightness": float(np.mean(gray)),
+        "contrast": float(np.std(gray)),
+        "clipped_ratio": float(max(np.mean(gray <= 5), np.mean(gray >= 250))),
+    }
+
+
 def _diff(prev, cur):
     if prev is None:
         return None
@@ -148,7 +156,7 @@ def _percentiles(values):
     }
 
 
-def _score_and_recommend(frame_count, sharp, diffs, masks):
+def _score_and_recommend(frame_count, sharp, diffs, health, masks):
     problems = []
     recommendations = []
     score = 100
@@ -177,6 +185,22 @@ def _score_and_recommend(frame_count, sharp, diffs, masks):
         score -= 12
         problems.append("large_view_jumps_or_exposure_changes")
         recommendations.append("Use steadier capture or lower FPS sampling to reduce sudden changes.")
+
+    brightness = health.get("brightness", {})
+    contrast = health.get("contrast", {})
+    clipped = health.get("clipped_ratio", {})
+    if brightness.get("p10", 255.0) < 12 or brightness.get("p90", 0.0) > 243:
+        score -= 10
+        problems.append("bad_exposure_frames")
+        recommendations.append("Filter heavily underexposed/overexposed frames or recapture with locked exposure.")
+    if contrast.get("p10", 999.0) < 5:
+        score -= 10
+        problems.append("low_contrast_frames")
+        recommendations.append("Remove near-flat frames caused by motion, glare, or occlusion before training.")
+    if clipped.get("p90", 0.0) > 0.55:
+        score -= 8
+        problems.append("clipped_frames")
+        recommendations.append("Avoid frames dominated by black/white clipping; they add weak or misleading matches.")
 
     if masks["count"]:
         fg = masks["fg_ratio"]
@@ -219,12 +243,19 @@ def assess_scene(scene_dir, images_dir=None, masks_dir=None, max_frames=160):
     sampled = images[::step]
     sharpness = []
     diffs = []
+    brightness = []
+    contrast = []
+    clipped = []
     prev = None
     dimensions = []
     for path in sampled:
         dimensions.append(_image_size(path))
         gray = _read_gray(path)
         sharpness.append(_sharpness(gray))
+        health = _frame_health(gray)
+        brightness.append(health["brightness"])
+        contrast.append(health["contrast"])
+        clipped.append(health["clipped_ratio"])
         diffs.append(_diff(prev, gray))
         prev = gray
 
@@ -251,7 +282,12 @@ def assess_scene(scene_dir, images_dir=None, masks_dir=None, max_frames=160):
 
     sharp = _percentiles(sharpness)
     diff_stats = _percentiles(diffs)
-    verdict = _score_and_recommend(len(images), sharp, diff_stats, mask_summary)
+    health_stats = {
+        "brightness": _percentiles(brightness),
+        "contrast": _percentiles(contrast),
+        "clipped_ratio": _percentiles(clipped),
+    }
+    verdict = _score_and_recommend(len(images), sharp, diff_stats, health_stats, mask_summary)
     return {
         "scene": str(scene),
         "images": {
@@ -261,6 +297,7 @@ def assess_scene(scene_dir, images_dir=None, masks_dir=None, max_frames=160):
             "dimensions_first_sample": dimensions[0] if dimensions else None,
             "sharpness_laplacian": sharp,
             "frame_diff": diff_stats,
+            "frame_health": health_stats,
         },
         "masks": mask_summary,
         "verdict": verdict,

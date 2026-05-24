@@ -52,7 +52,10 @@ copying original-resolution frames.
 Video extraction can use adaptive coverage recovery through
 `extract_adaptive=True`, `extract_min_frames=<count>`, and
 `extract_min_span=<ratio>`. The selected threshold pass and selected-frame
-timeline span are recorded in `frames/extraction_manifest.json`.
+timeline span are recorded in `frames/extraction_manifest.json`. Extraction
+also filters clearly unusable exposure/contrast frames before blur and
+near-duplicate checks; override the brightness, contrast, and clipped-ratio
+thresholds on `VideoPipelineConfig` for unusual capture conditions.
 
 ## Stable Building Blocks
 

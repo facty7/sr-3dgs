@@ -72,6 +72,31 @@ def _write_span_frame(path, idx, sharp=True):
     cv2.imwrite(str(path), arr)
 
 
+def _write_health_frame(path, idx):
+    arr = np.zeros((80, 80, 3), dtype=np.uint8)
+    if idx == 0:
+        arr[:, :] = 0
+    elif idx == 1:
+        arr[:, :] = 255
+    elif idx == 2:
+        arr[:, :] = 128
+    else:
+        arr[:, :] = 30 + idx
+        cv2.rectangle(arr, (8, 8), (62, 62), (220, 220, 220), -1)
+        cv2.line(arr, (0, (idx * 5) % 80), (79, (idx * 9) % 80), (20, 130, 240), 2)
+        cv2.putText(
+            arr,
+            str(idx),
+            (10, 70),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.45,
+            (255, 255, 255),
+            1,
+            cv2.LINE_AA,
+        )
+    cv2.imwrite(str(path), arr)
+
+
 def main():
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -165,6 +190,28 @@ def main():
         assert covered_manifest["selected_pass"].startswith("coverage_"), covered_manifest
         assert covered_manifest["selected_meets_target"] is True, covered_manifest
         assert covered_manifest["selected_span"] >= 0.80, covered_manifest
+
+        health_frames = []
+        for idx in range(12):
+            path = root / f"health_{idx:03d}.png"
+            _write_health_frame(path, idx)
+            health_frames.append(path)
+
+        healthy, health_manifest = select_frames_adaptive(
+            health_frames,
+            min_sharpness=1.0,
+            min_frame_diff=0.0,
+            max_frames=12,
+            min_frames=6,
+            min_span=0.0,
+            adaptive=False,
+        )
+        assert len(healthy) == 9, health_manifest
+        assert health_manifest["selected_skipped_bad_exposure"] == 3, health_manifest
+        selected_names = {path.name for path in healthy}
+        assert "health_000.png" not in selected_names, selected_names
+        assert "health_001.png" not in selected_names, selected_names
+        assert "health_002.png" not in selected_names, selected_names
 
 
 if __name__ == "__main__":
