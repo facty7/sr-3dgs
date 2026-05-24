@@ -112,6 +112,7 @@ def _summarize(output_dir, work_root, mobile_sog_mb, min_points):
         "sr_needs_download": (sr_manifest.get("model_preflight") or {}).get("needs_download"),
         "sr_weights_exist": (sr_manifest.get("model_preflight") or {}).get("weights_exist"),
         "sr_strategy_reason": sr_strategy.get("reason") or "",
+        "sr_risk_flags": _string_list(sr_strategy.get("sr_risk_flags")),
         "output_size": sr_manifest.get("output_size") or [],
         "extraction_selected_count": selected_frames,
         "extraction_raw_count": extraction_manifest.get("raw_count"),
@@ -148,7 +149,7 @@ def _print_table(rows):
     if not rows:
         return
     headers = [
-        "score", "mode", "req", "model", "scale", "eff_x", "fb", "frames",
+        "score", "mode", "req", "model", "scale", "eff_x", "fb", "risk", "frames",
         "target", "cov", "span", "cam", "cam_ratio", "pass", "psnr", "train_s",
         "points", "sog_mb", "ply_mb", "output"
     ]
@@ -163,6 +164,7 @@ def _print_table(rows):
             "scale": str(row["sr_scale"]),
             "eff_x": str(row.get("sr_effective_scale") or "-"),
             "fb": "yes" if row.get("sr_fallback") else "-",
+            "risk": str(len(row.get("sr_risk_flags") or [])) or "-",
             "frames": _fmt_optional(row.get("extraction_selected_count")),
             "target": _fmt_optional(row.get("extraction_target_frames")),
             "cov": _fmt_ratio(row.get("extraction_coverage_ratio")),
@@ -232,6 +234,8 @@ def _analysis(rows):
         if _has_low_colmap_quality(row)
     ]
     relaxed_rows = [row for row in rows if row.get("extraction_relaxed") is True]
+    sr_risk_rows = [row for row in rows if row.get("sr_risk_flags")]
+    problem_rows = [row for row in rows if row.get("problems")]
     missing_coverage_rows = [
         row for row in rows
         if row.get("extraction_meets_target") is None
@@ -257,6 +261,10 @@ def _analysis(rows):
         notes.append(
             f"{len(relaxed_rows)} run(s) used relaxed extraction thresholds; inspect the frame contact sheet for blur."
         )
+    if sr_risk_rows:
+        notes.append(
+            f"{len(sr_risk_rows)} run(s) reported SR consistency risk flags; compare off/resize before using learned SR."
+        )
     if missing_coverage_rows:
         notes.append(
             f"{len(missing_coverage_rows)} run(s) lack extraction coverage metadata; rerun extraction with current code for stronger comparison."
@@ -281,8 +289,167 @@ def _analysis(rows):
         "low_temporal_coverage_count": len(low_temporal_rows),
         "low_colmap_count": len(low_colmap_rows),
         "relaxed_extraction_count": len(relaxed_rows),
+        "sr_risk_count": len(sr_risk_rows),
+        "problem_count": len(problem_rows),
         "notes": notes,
+        "action_items": _action_items(
+            fallback_rows=fallback_rows,
+            low_coverage_rows=low_coverage_rows,
+            low_temporal_rows=low_temporal_rows,
+            low_colmap_rows=low_colmap_rows,
+            relaxed_rows=relaxed_rows,
+            sr_risk_rows=sr_risk_rows,
+            problem_rows=problem_rows,
+            winner=winner,
+        ),
     }
+
+
+def _action_items(
+    *,
+    fallback_rows,
+    low_coverage_rows,
+    low_temporal_rows,
+    low_colmap_rows,
+    relaxed_rows,
+    sr_risk_rows,
+    problem_rows,
+    winner,
+):
+    items = []
+    coverage_rows = _unique_rows([*low_coverage_rows, *low_temporal_rows])
+    if coverage_rows:
+        items.append(_make_action(
+            "input_coverage",
+            coverage_rows,
+            "Rerun the sweep with stronger frame coverage before judging SR quality.",
+            "Use --phone_coverage_sweep or raise extraction min/max frames; if timeline span stays low, recapture a slower full orbit with steadier framing.",
+        ))
+    if sr_risk_rows:
+        flags = sorted({
+            flag
+            for row in sr_risk_rows
+            for flag in row.get("sr_risk_flags", [])
+        })
+        items.append(_make_action(
+            "sr_consistency",
+            sr_risk_rows,
+            "Treat learned SR as unsafe for the flagged capture until off/resize baselines are checked.",
+            "Auto SR detected multi-view consistency risks: "
+            + ", ".join(flags)
+            + ". Prefer off or deterministic resize, or recapture with smoother motion and exposure.",
+        ))
+    if low_colmap_rows:
+        items.append(_make_action(
+            "colmap",
+            low_colmap_rows,
+            "Fix camera registration before trusting PSNR or point-count differences.",
+            "Review colmap_report.json attempts, prefer higher cam_ratio runs, and recapture with more parallax or texture if every camera model is weak.",
+        ))
+    if fallback_rows:
+        items.append(_make_action(
+            "sr_runtime",
+            fallback_rows,
+            "Resolve SR fallback before comparing learned-SR results.",
+            "Check sr_images/sr_manifest.json for model_preflight, missing weights, timeouts, and sr_error; fallback rows should be treated as off/copy baselines.",
+        ))
+    if relaxed_rows:
+        items.append(_make_action(
+            "frame_quality",
+            relaxed_rows,
+            "Review frames selected by relaxed extraction before publishing.",
+            "Relaxed thresholds can admit blur or exposure outliers; inspect frame contact sheets and rerun with stricter extraction if artifacts appear.",
+        ))
+
+    low_point_rows = [
+        row for row in problem_rows
+        if _problem_contains(row, "point count is too low")
+    ]
+    large_web_rows = [
+        row for row in problem_rows
+        if _problem_contains(row, "larger than mobile budget")
+    ]
+    missing_asset_rows = [
+        row for row in problem_rows
+        if (
+            _problem_contains(row, "missing web asset")
+            or _problem_contains(row, "missing PLY file")
+            or _problem_contains(row, "PLY diagnostics failed")
+        )
+    ]
+    if low_point_rows:
+        items.append(_make_action(
+            "geometry",
+            low_point_rows,
+            "Improve reconstruction density before tuning delivery polish.",
+            "Low point count usually means capture coverage, COLMAP registration, or training budget is the bottleneck; compare against the recommended output first.",
+        ))
+    if large_web_rows:
+        items.append(_make_action(
+            "delivery_size",
+            large_web_rows,
+            "Produce a smaller mobile web asset before release.",
+            "Use cleanup/downsampling or publish a separate mobile preset so the browser viewer stays inside the configured size budget.",
+        ))
+    if missing_asset_rows:
+        items.append(_make_action(
+            "delivery_assets",
+            missing_asset_rows,
+            "Rebuild or package the delivery before visual review.",
+            "The summary could not find a complete web asset or PLY, so validate_output/package_delivery should run before comparing quality.",
+        ))
+    if not items and winner.get("ok"):
+        items.append(_make_action(
+            "visual_review",
+            [winner],
+            "Run visual review on the recommended output.",
+            "The automated checks did not find blocking sweep issues; inspect orbit smoothness, floaters, thin details, and phone-browser load time.",
+        ))
+    return items
+
+
+def _make_action(area, rows, title, detail):
+    return {
+        "area": area,
+        "title": title,
+        "detail": detail,
+        "count": len(rows),
+        "affected_outputs": _row_names(rows),
+    }
+
+
+def _row_names(rows, limit=4):
+    names = [Path(row.get("output", "")).name for row in rows if row.get("output")]
+    if len(names) <= limit:
+        return names
+    return names[:limit] + [f"+{len(names) - limit} more"]
+
+
+def _unique_rows(rows):
+    seen = set()
+    unique = []
+    for row in rows:
+        output = row.get("output")
+        if output in seen:
+            continue
+        seen.add(output)
+        unique.append(row)
+    return unique
+
+
+def _problem_contains(row, needle):
+    needle = needle.lower()
+    return any(needle in str(problem).lower() for problem in row.get("problems") or [])
+
+
+def _string_list(value):
+    if not value:
+        return []
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, (list, tuple)):
+        return [str(item) for item in value if item]
+    return [str(value)]
 
 
 def _fmt_optional(value):
@@ -455,6 +622,8 @@ def main():
         )
         for note in analysis.get("notes", []):
             print(f"note: {note}")
+        for item in analysis.get("action_items", []):
+            print(f"action[{item.get('area')}]: {item.get('title')}")
     for item in skipped_outputs:
         print(
             "skipped: "

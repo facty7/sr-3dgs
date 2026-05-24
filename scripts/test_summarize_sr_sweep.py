@@ -88,6 +88,7 @@ def _write_workspace_meta(
     colmap_registered: int = 72,
     colmap_total: int = 80,
     colmap_points: int = 5000,
+    sr_risk_flags=(),
 ):
     (workspace / "sr_images").mkdir(parents=True)
     (workspace / "reports").mkdir()
@@ -100,6 +101,16 @@ def _write_workspace_meta(
             "sr_model": "real-esrgan",
             "scale": 1 if mode == "off" else 2,
             "effective_scale": [1.0, 1.0] if mode == "off" else [2.0, 2.0],
+        }),
+        encoding="utf-8",
+    )
+    (workspace / "reports" / "sr_strategy.json").write_text(
+        json.dumps({
+            "mode": mode,
+            "model": "real-esrgan",
+            "scale": 1 if mode == "off" else 2,
+            "reason": "test fixture",
+            "sr_risk_flags": list(sr_risk_flags),
         }),
         encoding="utf-8",
     )
@@ -211,6 +222,10 @@ def main():
         assert row["sr_effective_scale"] == "1", row
         assert row["sr_fallback"] is True, row
         assert data["analysis"]["fallback_count"] == 1, data
+        assert any(
+            item["area"] == "sr_runtime"
+            for item in data["analysis"]["action_items"]
+        ), data
         assert row["input_score"] == 80, row
         assert row["best_psnr"] == 24.125, row
         assert row["train_sec"] == 12.5, row
@@ -287,6 +302,10 @@ def main():
         assert data3["analysis"]["low_coverage_count"] == 1, data3
         assert data3["analysis"]["low_temporal_coverage_count"] == 0, data3
         assert data3["analysis"]["relaxed_extraction_count"] == 2, data3
+        assert any(
+            item["area"] == "input_coverage"
+            for item in data3["analysis"]["action_items"]
+        ), data3
 
         partial = out_root / "phone_partial_x1"
         _write_min_delivery(partial, partial.name)
@@ -384,6 +403,68 @@ def main():
         assert rows5["phone_weak_cam_x1"]["colmap_meets_quality_target"] is False, data5
         assert data5["analysis"]["low_colmap_count"] == 1, data5
         assert data5["analysis"]["recommended_output"].endswith("phone_strong_cam_x1"), data5
+        assert any(
+            item["area"] == "colmap"
+            for item in data5["analysis"]["action_items"]
+        ), data5
+
+        risky = out_root / "phone_auto_risky_x2"
+        baseline = out_root / "phone_resize_baseline_x2"
+        _write_min_delivery(risky, risky.name)
+        _write_min_delivery(baseline, baseline.name)
+        _write_workspace_meta(
+            work_root / risky.name,
+            mode="resize",
+            selected_count=80,
+            target_frames=64,
+            psnr=26.0,
+            temporal_coverage=1.0,
+            sr_risk_flags=[
+                "near_duplicate_frames",
+                "large_view_jumps_or_exposure_changes",
+            ],
+        )
+        _write_workspace_meta(
+            work_root / baseline.name,
+            mode="off",
+            selected_count=80,
+            target_frames=64,
+            psnr=25.0,
+            temporal_coverage=1.0,
+        )
+        report_risk = root / "summary_risk.json"
+        proc_risk = subprocess.run(
+            [
+                sys.executable,
+                "scripts/summarize_sr_sweep.py",
+                str(risky),
+                str(baseline),
+                "--work_root",
+                str(work_root),
+                "--report",
+                str(report_risk),
+                "--min_points",
+                "1",
+            ],
+            cwd=str(ROOT),
+            check=True,
+            text=True,
+            capture_output=True,
+        )
+        assert "action[sr_consistency]" in proc_risk.stdout, proc_risk.stdout
+        data_risk = json.loads(report_risk.read_text(encoding="utf-8"))
+        rows_risk = {Path(row["output"]).name: row for row in data_risk["results"]}
+        assert rows_risk["phone_auto_risky_x2"]["sr_risk_flags"] == [
+            "near_duplicate_frames",
+            "large_view_jumps_or_exposure_changes",
+        ], data_risk
+        assert data_risk["analysis"]["sr_risk_count"] == 1, data_risk
+        sr_actions = [
+            item for item in data_risk["analysis"]["action_items"]
+            if item["area"] == "sr_consistency"
+        ]
+        assert sr_actions, data_risk
+        assert "phone_auto_risky_x2" in sr_actions[0]["affected_outputs"], data_risk
 
         plan_report = root / "summary_from_plan.json"
         sweep_plan = root / "sr_sweep_plan.json"

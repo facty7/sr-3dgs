@@ -175,15 +175,21 @@ python scripts/summarize_sr_sweep.py \
 
 The summary table reports `eff_x`, the actual SR scale inferred from the
 manifest. A `model` run that falls back safely can therefore show requested
-`scale=2` with `eff_x=1`. The `frames`, `target`, `cov`, `span`, and `pass`
+`scale=2` with `eff_x=1`. The `risk` column counts SR consistency flags from
+`reports/sr_strategy.json`. The `frames`, `target`, `cov`, `span`, and `pass`
 columns come from `frames/extraction_manifest.json`; `cam` and `cam_ratio`
 come from `colmap/colmap_report.json`. Low-coverage or weak-COLMAP phone
 captures do not outrank better-covered runs only because their delivery score
 or PSNR is higher. `span` is the selected-frame coverage across the source
 timeline; for turntable-style phone videos it should usually be close to
-`1.00`. The `fb` column marks SR fallback runs, and the JSON report includes a
-lightweight `analysis` block with a recommended output and notes for visual
-review.
+`1.00`. The `fb` column marks SR fallback runs.
+
+The JSON report includes a lightweight `analysis` block with a recommended
+output, review notes, and `action_items`. These action items separate common
+failure causes such as weak frame coverage, partial timeline coverage, COLMAP
+registration trouble, learned-SR runtime fallback, SR consistency risk, low
+point count, oversized mobile assets, and incomplete delivery packaging. Treat
+them as triage guidance before spending time on manual visual comparison.
 
 ## Candidate Cleanup
 
