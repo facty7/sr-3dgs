@@ -23,6 +23,9 @@ class SRStrategy:
     sharpness_p10: Optional[float] = None
     frame_count: Optional[int] = None
     long_edge: Optional[int] = None
+    extraction_coverage_ratio: Optional[float] = None
+    extraction_temporal_coverage: Optional[float] = None
+    extraction_selected_pass: Optional[str] = None
     vram_gb: Optional[float] = None
     model_preflight: Optional[Dict[str, Any]] = None
 
@@ -58,6 +61,13 @@ def recommend_sr_strategy(
     score = verdict.get("score")
     frame_count = images.get("count")
     problems = set(verdict.get("problems") or [])
+    extraction = report.get("extraction") or {}
+    coverage_ratio = _coverage_ratio(
+        extraction.get("selected_count"),
+        extraction.get("min_frames"),
+    )
+    temporal_coverage = _selected_temporal_coverage(extraction)
+    selected_pass = extraction.get("selected_pass")
 
     preferred_scale = int(preferred_scale or 2)
     preferred_scale = 2 if preferred_scale <= 1 else min(preferred_scale, 2)
@@ -72,6 +82,9 @@ def recommend_sr_strategy(
             sharpness_p10=sharp_p10,
             frame_count=frame_count,
             long_edge=long_edge,
+            extraction_coverage_ratio=coverage_ratio,
+            extraction_temporal_coverage=temporal_coverage,
+            extraction_selected_pass=selected_pass,
             vram_gb=vram_gb,
         )
 
@@ -85,19 +98,34 @@ def recommend_sr_strategy(
             sharpness_p10=sharp_p10,
             frame_count=frame_count,
             long_edge=long_edge,
+            extraction_coverage_ratio=coverage_ratio,
+            extraction_temporal_coverage=temporal_coverage,
+            extraction_selected_pass=selected_pass,
             vram_gb=vram_gb,
         )
 
-    if frame_count is not None and frame_count < 48:
+    if (
+        (frame_count is not None and frame_count < 48)
+        or (coverage_ratio is not None and coverage_ratio < 1.0)
+        or (temporal_coverage is not None and temporal_coverage < 0.80)
+    ):
+        reason = "too few views; prioritize capture coverage over SR"
+        if coverage_ratio is not None and coverage_ratio < 1.0:
+            reason = "extraction missed its frame coverage target; prioritize capture coverage over SR"
+        elif temporal_coverage is not None and temporal_coverage < 0.80:
+            reason = "selected frames cover only part of the video; prioritize full-turn coverage over SR"
         return SRStrategy(
             mode="off",
             model=preferred_model,
             scale=1,
-            reason="too few views; prioritize capture coverage over SR",
+            reason=reason,
             input_score=score,
             sharpness_p10=sharp_p10,
             frame_count=frame_count,
             long_edge=long_edge,
+            extraction_coverage_ratio=coverage_ratio,
+            extraction_temporal_coverage=temporal_coverage,
+            extraction_selected_pass=selected_pass,
             vram_gb=vram_gb,
         )
 
@@ -111,6 +139,9 @@ def recommend_sr_strategy(
             sharpness_p10=sharp_p10,
             frame_count=frame_count,
             long_edge=long_edge,
+            extraction_coverage_ratio=coverage_ratio,
+            extraction_temporal_coverage=temporal_coverage,
+            extraction_selected_pass=selected_pass,
             vram_gb=vram_gb,
         )
 
@@ -124,6 +155,9 @@ def recommend_sr_strategy(
             sharpness_p10=sharp_p10,
             frame_count=frame_count,
             long_edge=long_edge,
+            extraction_coverage_ratio=coverage_ratio,
+            extraction_temporal_coverage=temporal_coverage,
+            extraction_selected_pass=selected_pass,
             vram_gb=vram_gb,
         )
 
@@ -136,8 +170,34 @@ def recommend_sr_strategy(
         sharpness_p10=sharp_p10,
         frame_count=frame_count,
         long_edge=long_edge,
+        extraction_coverage_ratio=coverage_ratio,
+        extraction_temporal_coverage=temporal_coverage,
+        extraction_selected_pass=selected_pass,
         vram_gb=vram_gb,
     )
+
+
+def _coverage_ratio(selected, target):
+    try:
+        selected = float(selected)
+        target = float(target)
+    except (TypeError, ValueError):
+        return None
+    if target <= 0:
+        return None
+    return round(selected / target, 3)
+
+
+def _selected_temporal_coverage(extraction: Dict[str, Any]) -> Optional[float]:
+    selected = extraction.get("selected_pass")
+    for item in extraction.get("passes") or []:
+        if item.get("name") == selected:
+            value = item.get("selected_raw_index_coverage")
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return None
+    return None
 
 
 def write_strategy(path: str | Path, strategy: SRStrategy):

@@ -269,6 +269,13 @@ class VideoPipeline:
             image_dir=self.frames_dir,
             report_name="input_quality_frames",
         )
+        if frame_quality is not None and extraction_manifest.exists():
+            try:
+                frame_quality["extraction"] = json.loads(
+                    extraction_manifest.read_text(encoding="utf-8")
+                )
+            except Exception as exc:
+                print(f"[SRStrategy] WARNING: failed to read extraction manifest: {exc}")
         effective_sr_mode = cfg.sr_mode
         effective_sr_model = cfg.sr_model
         effective_sr_scale = cfg.sr_scale

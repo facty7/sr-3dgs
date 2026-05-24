@@ -200,6 +200,46 @@ def main():
         )
         assert allowed.mode == "model", allowed
 
+        low_coverage_strategy = recommend_sr_strategy({
+            "images": {
+                "count": 80,
+                "dimensions_first_sample": [960, 540],
+                "sharpness_laplacian": {"p10": 90.0},
+            },
+            "verdict": {"score": 78, "problems": []},
+            "extraction": {
+                "selected_count": 40,
+                "min_frames": 64,
+                "selected_pass": "coverage_3",
+                "passes": [{
+                    "name": "coverage_3",
+                    "selected_raw_index_coverage": 1.0,
+                }],
+            },
+        }, preferred_scale=2, vram_gb=24)
+        assert low_coverage_strategy.mode == "off", low_coverage_strategy
+        assert low_coverage_strategy.extraction_coverage_ratio < 1.0, low_coverage_strategy
+
+        low_span_strategy = recommend_sr_strategy({
+            "images": {
+                "count": 80,
+                "dimensions_first_sample": [960, 540],
+                "sharpness_laplacian": {"p10": 90.0},
+            },
+            "verdict": {"score": 78, "problems": []},
+            "extraction": {
+                "selected_count": 80,
+                "min_frames": 64,
+                "selected_pass": "coverage_1",
+                "passes": [{
+                    "name": "coverage_1",
+                    "selected_raw_index_coverage": 0.45,
+                }],
+            },
+        }, preferred_scale=2, vram_gb=24)
+        assert low_span_strategy.mode == "off", low_span_strategy
+        assert low_span_strategy.extraction_temporal_coverage == 0.45, low_span_strategy
+
         blurry_strategy = recommend_sr_strategy({
             "images": {
                 "count": 80,

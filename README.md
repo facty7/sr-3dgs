@@ -139,8 +139,8 @@ load or make progress, the pipeline falls back to original-resolution frames
 and records `effective_mode`, `effective_scale`, and `model_preflight` in the
 manifest. Set `--sr_strict_model` to treat learned-SR failures as errors
 instead of fallback events. In `--sr_mode auto`, learned SR is selected only
-when the needed weights are already local; set `--sr_allow_download` to permit
-first-run weight downloads.
+when the needed weights are already local and extraction coverage is healthy;
+set `--sr_allow_download` to permit first-run weight downloads.
 
 Frame extraction is adaptive by default. The extractor first applies the preset
 blur/diversity filters, then relaxes them only if too few views survive for
