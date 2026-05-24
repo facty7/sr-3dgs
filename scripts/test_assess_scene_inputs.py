@@ -38,10 +38,10 @@ def main():
             _write_mask(masks / name)
 
         report = assess_scene(scene, max_frames=6)
-        assert report["images"]["path"].endswith("subject_bbox/images"), report
+        assert Path(report["images"]["path"]).parts[-2:] == ("subject_bbox", "images"), report
         assert report["images"]["count"] == 6, report
         assert report["images"]["dimensions_first_sample"] == [1280, 720], report
-        assert report["masks"]["path"].endswith("subject_masked/masks"), report
+        assert Path(report["masks"]["path"]).parts[-2:] == ("subject_masked", "masks"), report
         assert report["masks"]["count"] == 6, report
         assert 0 <= report["verdict"]["score"] <= 100, report
 

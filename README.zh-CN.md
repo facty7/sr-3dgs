@@ -120,6 +120,8 @@ python scripts/run_video_pipeline.py --video input_videos/object.mp4 \
 
 每次运行都会写入 `workspace_video/<scene>/sr_images/sr_manifest.json`，记录本次 SR 模式、scale、输出分辨率和 fallback 状态。learned SR 带有加载和进度超时；如果模型无法加载或长时间没有产出，pipeline 会回退到原始分辨率帧，并在 manifest 中记录 `effective_mode`、`effective_scale` 和 `model_preflight`。设置 `--sr_strict_model` 可将 learned SR 失败作为错误处理，而不是自动回退。在 `--sr_mode auto` 中，只有权重已经在本地时才会自动选择 learned SR；设置 `--sr_allow_download` 可允许首次运行时下载权重。
 
+抽帧默认启用自适应策略。流程会先使用 preset 中的模糊和近重复过滤阈值；如果保留下来的视角太少，会逐档放宽阈值以优先保证重建覆盖。实际采用的档位、阈值和保留帧会记录在 `workspace_video/<scene>/frames/extraction_manifest.json`。
+
 可选物体裁剪：
 
 ```bash
@@ -151,6 +153,7 @@ python scripts/assess_scene_inputs.py workspace_video/object \
 
 - `workspace_video/<scene>/reports/input_quality_frames.html`
 - 启用 `--object_mask auto` 时的 `workspace_video/<scene>/reports/input_quality_object.html`
+- `workspace_video/<scene>/frames/extraction_manifest.json`
 
 评估内容包括帧数、模糊、近重复视角、大幅视角跳变、前景 mask 大小和 mask 是否触碰图像边界。
 

@@ -77,6 +77,45 @@ def _write_min_delivery_manifest_style(out: Path, workspace: Path, name: str):
     )
 
 
+def _write_workspace_meta(
+    workspace: Path,
+    *,
+    mode: str,
+    selected_count: int,
+    target_frames: int,
+    psnr: float,
+):
+    (workspace / "sr_images").mkdir(parents=True)
+    (workspace / "reports").mkdir()
+    (workspace / "frames").mkdir()
+    (workspace / "train_output").mkdir()
+    (workspace / "sr_images" / "sr_manifest.json").write_text(
+        json.dumps({
+            "requested_mode": mode,
+            "effective_mode": mode,
+            "sr_model": "real-esrgan",
+            "scale": 1 if mode == "off" else 2,
+            "effective_scale": [1.0, 1.0] if mode == "off" else [2.0, 2.0],
+        }),
+        encoding="utf-8",
+    )
+    (workspace / "frames" / "extraction_manifest.json").write_text(
+        json.dumps({
+            "raw_count": 120,
+            "selected_count": selected_count,
+            "min_frames": target_frames,
+            "selected_pass": "coverage_1" if selected_count >= target_frames else "coverage_3",
+            "relaxed": True,
+            "projection": "perspective",
+        }),
+        encoding="utf-8",
+    )
+    (workspace / "train_output" / "training_summary.json").write_text(
+        json.dumps({"best_psnr": psnr, "elapsed_sec": 20.0}),
+        encoding="utf-8",
+    )
+
+
 def main():
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -170,6 +209,53 @@ def main():
         row2 = json.loads(report2.read_text(encoding="utf-8"))["results"][0]
         assert row2["sr_mode"] == "resize", row2
         assert row2["point_count"] == 8, row2
+
+        low_cov = out_root / "phone_resize_x2"
+        good_cov = out_root / "phone_off_x1"
+        _write_min_delivery(low_cov, low_cov.name)
+        _write_min_delivery(good_cov, good_cov.name)
+        _write_workspace_meta(
+            work_root / low_cov.name,
+            mode="resize",
+            selected_count=18,
+            target_frames=64,
+            psnr=30.0,
+        )
+        _write_workspace_meta(
+            work_root / good_cov.name,
+            mode="off",
+            selected_count=72,
+            target_frames=64,
+            psnr=24.0,
+        )
+        report3 = root / "summary_coverage.json"
+        subprocess.run(
+            [
+                sys.executable,
+                "scripts/summarize_sr_sweep.py",
+                str(low_cov),
+                str(good_cov),
+                "--work_root",
+                str(work_root),
+                "--report",
+                str(report3),
+                "--min_points",
+                "1",
+            ],
+            cwd=str(ROOT),
+            check=True,
+            text=True,
+            capture_output=True,
+        )
+        data3 = json.loads(report3.read_text(encoding="utf-8"))
+        rows = {Path(row["output"]).name: row for row in data3["results"]}
+        assert rows["phone_resize_x2"]["extraction_meets_target"] is False, rows
+        assert rows["phone_off_x1"]["extraction_meets_target"] is True, rows
+        assert rows["phone_resize_x2"]["extraction_coverage_ratio"] < 1.0, rows
+        assert rows["phone_off_x1"]["extraction_coverage_ratio"] >= 1.0, rows
+        assert data3["analysis"]["recommended_output"].endswith("phone_off_x1"), data3
+        assert data3["analysis"]["low_coverage_count"] == 1, data3
+        assert data3["analysis"]["relaxed_extraction_count"] == 2, data3
 
 
 if __name__ == "__main__":

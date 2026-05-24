@@ -49,6 +49,10 @@ requested scale from the effective scale used for training. Set
 `sr_strict_model=True` when a learned-SR failure should raise instead of
 copying original-resolution frames.
 
+Video extraction can use adaptive coverage recovery through
+`extract_adaptive=True` and `extract_min_frames=<count>`. The selected
+threshold pass is recorded in `frames/extraction_manifest.json`.
+
 ## Stable Building Blocks
 
 Many workflows are currently easier to compose through scripts:

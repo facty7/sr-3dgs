@@ -11,6 +11,7 @@ Key strategies for good SfM from video:
 """
 
 import os
+import json
 import subprocess
 import shutil
 from pathlib import Path
@@ -44,6 +45,155 @@ def frame_difference(img1: np.ndarray, img2: np.ndarray) -> float:
     """
     diff = np.abs(img1.astype(np.float32) - img2.astype(np.float32)).mean() / 255.0
     return float(diff)
+
+
+def _coverage_target(raw_count: int, max_frames: int, min_frames: Optional[int]) -> int:
+    if raw_count <= 0 or max_frames <= 0:
+        return 0
+    target = 48 if min_frames is None else max(1, int(min_frames))
+    return min(int(raw_count), int(max_frames), target)
+
+
+def _adaptive_thresholds(min_sharpness: float, min_frame_diff: float, adaptive: bool):
+    factors = [(1.0, 1.0)]
+    if adaptive:
+        factors.extend([(0.65, 0.75), (0.40, 0.50), (0.20, 0.25)])
+
+    seen = set()
+    passes = []
+    for idx, (sharp_factor, diff_factor) in enumerate(factors):
+        sharp = max(0.0, float(min_sharpness) * sharp_factor)
+        diff = max(0.0, float(min_frame_diff) * diff_factor)
+        key = (round(sharp, 6), round(diff, 6))
+        if key in seen:
+            continue
+        seen.add(key)
+        name = "strict" if idx == 0 else f"coverage_{idx}"
+        passes.append((name, sharp, diff))
+    return passes
+
+
+def _filter_raw_frames(
+    raw_frames: List[Path],
+    *,
+    min_sharpness: float,
+    min_frame_diff: float,
+    max_frames: int,
+):
+    import cv2
+
+    kept = []
+    last_kept_img = None
+    lap_values = []
+    diff_values = []
+    skipped_blur = 0
+    skipped_duplicate = 0
+    unreadable = 0
+
+    for fpath in raw_frames:
+        if len(kept) >= max_frames:
+            break
+
+        img = cv2.imread(str(fpath))
+        if img is None:
+            unreadable += 1
+            continue
+        img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+        is_sharp, lap_var = detect_blur_laplacian(img_rgb, min_sharpness)
+        lap_values.append(float(lap_var))
+        if not is_sharp:
+            skipped_blur += 1
+            continue
+
+        diff = None
+        if last_kept_img is not None:
+            diff = frame_difference(last_kept_img, img_rgb)
+            diff_values.append(diff)
+            if diff < min_frame_diff:
+                skipped_duplicate += 1
+                continue
+
+        kept.append(fpath)
+        last_kept_img = img_rgb
+
+    stats = {
+        "min_sharpness": float(min_sharpness),
+        "min_frame_diff": float(min_frame_diff),
+        "kept_count": len(kept),
+        "skipped_blur": skipped_blur,
+        "skipped_near_duplicate": skipped_duplicate,
+        "unreadable": unreadable,
+    }
+    if lap_values:
+        stats["sharpness_min"] = float(np.min(lap_values))
+        stats["sharpness_p10"] = float(np.percentile(lap_values, 10))
+        stats["sharpness_p50"] = float(np.percentile(lap_values, 50))
+    if diff_values:
+        stats["frame_diff_p10"] = float(np.percentile(diff_values, 10))
+        stats["frame_diff_p50"] = float(np.percentile(diff_values, 50))
+    return kept, stats
+
+
+def select_frames_adaptive(
+    raw_frames: List[Path],
+    *,
+    min_sharpness: float,
+    min_frame_diff: float,
+    max_frames: int,
+    min_frames: Optional[int] = None,
+    adaptive: bool = True,
+):
+    """Select raw frames, relaxing thresholds only when coverage is too low."""
+    raw_frames = [Path(path) for path in raw_frames]
+    target = _coverage_target(len(raw_frames), max_frames, min_frames)
+    best = None
+    chosen = None
+    pass_reports = []
+
+    for name, sharp, diff in _adaptive_thresholds(min_sharpness, min_frame_diff, adaptive):
+        selected, stats = _filter_raw_frames(
+            raw_frames,
+            min_sharpness=sharp,
+            min_frame_diff=diff,
+            max_frames=max_frames,
+        )
+        stats["name"] = name
+        stats["meets_target"] = len(selected) >= target
+        pass_reports.append(stats)
+
+        item = (selected, stats)
+        if best is None or len(selected) > len(best[0]):
+            best = item
+        if len(selected) >= target:
+            chosen = item
+            break
+
+    if chosen is None:
+        chosen = best or ([], {})
+
+    selected, selected_stats = chosen
+    manifest = {
+        "raw_count": len(raw_frames),
+        "max_frames": int(max_frames),
+        "min_frames": int(target),
+        "requested_min_sharpness": float(min_sharpness),
+        "requested_min_frame_diff": float(min_frame_diff),
+        "adaptive": bool(adaptive),
+        "selected_count": len(selected),
+        "selected_pass": selected_stats.get("name", ""),
+        "relaxed": selected_stats.get("name", "strict") != "strict",
+        "passes": pass_reports,
+        "selected_raw_files": [Path(path).name for path in selected],
+    }
+    return selected, manifest
+
+
+def _clear_output_frames(output_dir: Path):
+    for pattern in ("frame_*.png", "frame_*.jpg", "frame_*.jpeg"):
+        for path in output_dir.glob(pattern):
+            if path.is_file():
+                path.unlink()
 
 
 class VideoFrameExtractor:
@@ -84,6 +234,8 @@ class VideoFrameExtractor:
                 min_sharpness: float = 100.0,
                 min_frame_diff: float = 0.02,
                 max_frames: int = 300,
+                min_frames: Optional[int] = 48,
+                adaptive: bool = True,
                 target_long_edge: int = 1920,
                 start_time: Optional[float] = None,
                 duration: Optional[float] = None,
@@ -95,6 +247,8 @@ class VideoFrameExtractor:
             min_sharpness: Minimum Laplacian variance (higher = stricter)
             min_frame_diff: Minimum difference from last kept frame
             max_frames: Maximum frames to extract
+            min_frames: Desired minimum kept frames before relaxing filters
+            adaptive: Relax quality/diversity thresholds when coverage is low
             target_long_edge: Resize so long edge = this (0 = no resize)
             start_time: Start time in seconds (None = beginning)
             duration: Duration in seconds (None = entire video)
@@ -124,42 +278,48 @@ class VideoFrameExtractor:
         print(f"[VideoExtractor] Extracted {len(raw_frames)} raw frames at {fps} fps")
 
         # Step 2: Quality filter (blur detection + diversity)
-        import cv2
+        selected, manifest = select_frames_adaptive(
+            raw_frames,
+            min_sharpness=min_sharpness,
+            min_frame_diff=min_frame_diff,
+            max_frames=max_frames,
+            min_frames=min_frames,
+            adaptive=adaptive,
+        )
+
+        _clear_output_frames(self.output_dir)
         kept_paths = []
-        last_kept_img = None
-
-        for i, fpath in enumerate(raw_frames):
-            if len(kept_paths) >= max_frames:
-                break
-
-            img = cv2.imread(str(fpath))
-            if img is None:
-                continue
-            img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-
-            # Blur check
-            is_sharp, lap_var = detect_blur_laplacian(img_rgb, min_sharpness)
-            if not is_sharp:
-                continue
-
-            # Diversity check (avoid near-duplicates)
-            if last_kept_img is not None:
-                diff = frame_difference(last_kept_img, img_rgb)
-                if diff < min_frame_diff:
-                    continue
-
-            # Keep this frame
-            out_path = self.output_dir / f"frame_{len(kept_paths):05d}.png"
-            cv2.imwrite(str(out_path), img)
+        for fpath in selected:
+            out_path = self.output_dir / f"frame_{len(kept_paths):05d}{fpath.suffix.lower()}"
+            shutil.copy2(fpath, out_path)
             kept_paths.append(out_path)
-            last_kept_img = img_rgb
+
+        manifest.update({
+            "projection": "perspective",
+            "fps": float(fps),
+            "target_long_edge": int(target_long_edge),
+            "start_time": start_time,
+            "duration": duration,
+            "output_files": [path.name for path in kept_paths],
+            "video": video_info,
+        })
+        (self.output_dir / "extraction_manifest.json").write_text(
+            json.dumps(manifest, indent=2) + "\n",
+            encoding="utf-8",
+        )
 
         # Cleanup raw frames
         shutil.rmtree(raw_dir)
 
         pct_kept = 100.0 * len(kept_paths) / max(len(raw_frames), 1)
         print(f"[VideoExtractor] Kept {len(kept_paths)}/{len(raw_frames)} "
-              f"frames ({pct_kept:.1f}%) after quality filter")
+                  f"frames ({pct_kept:.1f}%) after quality filter")
+        if manifest.get("relaxed"):
+            print(
+                "[VideoExtractor] Adaptive filter relaxed to "
+                f"{manifest['selected_pass']} for coverage "
+                f"({len(kept_paths)}/{manifest['min_frames']} target frames)."
+            )
 
         if len(kept_paths) < 15:
             print("[VideoExtractor] WARNING: Few frames kept. "
@@ -172,6 +332,8 @@ class VideoFrameExtractor:
                                           min_sharpness: float = 60.0,
                                           min_frame_diff: float = 0.01,
                                           max_source_frames: int = 80,
+                                          min_source_frames: Optional[int] = 12,
+                                          adaptive: bool = True,
                                           face_size: int = 1024,
                                           faces: Tuple[str, ...] = ("front", "right", "back", "left"),
                                           start_time: Optional[float] = None,
@@ -190,30 +352,32 @@ class VideoFrameExtractor:
         if len(raw_frames) < 2:
             raise RuntimeError(f"Only {len(raw_frames)} frames extracted from 360 video.")
 
-        import cv2
         kept = []
-        last_kept_img = None
+        selected_paths, manifest = select_frames_adaptive(
+            raw_frames,
+            min_sharpness=min_sharpness,
+            min_frame_diff=min_frame_diff,
+            max_frames=max_source_frames,
+            min_frames=min_source_frames,
+            adaptive=adaptive,
+        )
+
+        if len(selected_paths) < 2:
+            raise RuntimeError("360 extraction kept too few source frames.")
+
+        import cv2
         selected_raw = []
-        for fpath in raw_frames:
-            if len(selected_raw) >= max_source_frames:
-                break
+        for fpath in selected_paths:
             img = cv2.imread(str(fpath))
             if img is None:
                 continue
             img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-            is_sharp, _ = detect_blur_laplacian(img_rgb, min_sharpness)
-            if not is_sharp:
-                continue
-            if last_kept_img is not None:
-                diff = frame_difference(last_kept_img, img_rgb)
-                if diff < min_frame_diff:
-                    continue
             selected_raw.append((fpath, img_rgb))
-            last_kept_img = img_rgb
 
         if len(selected_raw) < 2:
             raise RuntimeError("360 extraction kept too few source frames.")
 
+        _clear_output_frames(self.output_dir)
         maps = {face: _build_equirect_face_map(face, face_size) for face in faces}
         for src_index, (fpath, img_rgb) in enumerate(selected_raw):
             bgr = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
@@ -232,10 +396,30 @@ class VideoFrameExtractor:
                 kept.append(out_path)
 
         shutil.rmtree(raw_dir)
+        manifest.update({
+            "projection": "equirectangular",
+            "fps": float(fps),
+            "face_size": int(face_size),
+            "faces": list(faces),
+            "source_count": len(selected_raw),
+            "output_count": len(kept),
+            "start_time": start_time,
+            "duration": duration,
+            "output_files": [path.name for path in kept],
+        })
+        (self.output_dir / "extraction_manifest.json").write_text(
+            json.dumps(manifest, indent=2) + "\n",
+            encoding="utf-8",
+        )
         print(
             f"[VideoExtractor] 360 cubemap extraction kept {len(selected_raw)} "
             f"source frames -> {len(kept)} perspective faces"
         )
+        if manifest.get("relaxed"):
+            print(
+                "[VideoExtractor] Adaptive 360 filter relaxed to "
+                f"{manifest['selected_pass']} for source coverage."
+            )
         return kept
 
     def _ffmpeg_extract(self, output_dir: Path, fps: float,

@@ -121,6 +121,8 @@ python scripts/run_video_pipeline.py --video input_videos/object.mp4 \
 
 各実行では `workspace_video/<scene>/sr_images/sr_manifest.json` に、SR mode、scale、出力解像度、fallback 状態が記録されます。learned SR にはロードと進捗のタイムアウトがあり、モデルがロードできない、または長時間出力が進まない場合は元解像度のフレームに fallback し、manifest に `effective_mode`、`effective_scale`、`model_preflight` を記録します。`--sr_strict_model` は learned SR の失敗を fallback ではなくエラーとして扱います。`--sr_mode auto` では、必要な weights がローカルにある場合だけ learned SR を自動選択します。`--sr_allow_download` は初回の weights ダウンロードを許可します。
 
+フレーム抽出は既定で adaptive です。preset のブラー/近重複フィルタを先に適用し、安定した復元に必要な視点数が不足する場合だけ段階的に閾値を緩和します。採用された pass、閾値、保持された raw frame は `workspace_video/<scene>/frames/extraction_manifest.json` に記録されます。
+
 任意のオブジェクト crop：
 
 ```bash
@@ -152,6 +154,7 @@ python scripts/assess_scene_inputs.py workspace_video/object \
 
 - `workspace_video/<scene>/reports/input_quality_frames.html`
 - `--object_mask auto` 有効時の `workspace_video/<scene>/reports/input_quality_object.html`
+- `workspace_video/<scene>/frames/extraction_manifest.json`
 
 評価内容は、フレーム数、ブラー、近重複、急な視点ジャンプ、前景 mask サイズ、mask が画像境界に触れているかどうかです。
 

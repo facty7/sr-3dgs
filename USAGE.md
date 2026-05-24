@@ -44,6 +44,22 @@ Open:
 http://127.0.0.1:8765/output/object/START_HERE.html
 ```
 
+## Adaptive Frame Extraction
+
+Video frame extraction is adaptive by default. It starts with the preset
+blur/diversity thresholds and relaxes them only when too few frames survive for
+coverage. This is meant for ordinary phone captures where motion blur and
+near-duplicate frames vary across the clip.
+
+```bash
+python scripts/run_video_pipeline.py --video input_videos/object.mp4 \
+  --preset standard --extract_min_frames 64
+```
+
+Use `--no_adaptive_extract` for strict ablation runs. Each run records the
+selected extraction pass in
+`workspace_video/<scene>/frames/extraction_manifest.json`.
+
 ## Super-Resolution Modes
 
 Use explicit SR modes when comparing output quality:
@@ -105,9 +121,12 @@ python scripts/summarize_sr_sweep.py \
 
 The summary table reports `eff_x`, the actual SR scale inferred from the
 manifest. A `model` run that falls back safely can therefore show requested
-`scale=2` with `eff_x=1`. The `fb` column marks SR fallback runs, and the JSON
-report includes a lightweight `analysis` block with a recommended output and
-notes for visual review.
+`scale=2` with `eff_x=1`. The `frames`, `target`, `cov`, and `pass` columns
+come from `frames/extraction_manifest.json` so low-coverage phone captures do
+not outrank better-covered runs only because their delivery score is higher.
+The `fb` column marks SR fallback runs, and the JSON report includes a
+lightweight `analysis` block with a recommended output and notes for visual
+review.
 
 ## Candidate Cleanup
 

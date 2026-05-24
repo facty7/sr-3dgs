@@ -46,11 +46,20 @@ def _summarize(output_dir, work_root, mobile_sog_mb, min_points):
     sr_strategy = {}
     input_quality = {}
     training_summary = {}
+    extraction_manifest = {}
     if workspace:
         sr_manifest = _read_json(workspace / "sr_images" / "sr_manifest.json")
         sr_strategy = _read_json(workspace / "reports" / "sr_strategy.json")
         input_quality = _read_json(workspace / "reports" / "input_quality_frames.json")
         training_summary = _read_json(workspace / "train_output" / "training_summary.json")
+        extraction_manifest = _read_json(workspace / "frames" / "extraction_manifest.json")
+    if not extraction_manifest:
+        extraction_manifest = _read_json(output_dir / "reports" / "extraction_manifest.json")
+
+    selected_frames = extraction_manifest.get("selected_count")
+    target_frames = extraction_manifest.get("min_frames")
+    coverage_ratio = _coverage_ratio(selected_frames, target_frames)
+    coverage_meets_target = None if coverage_ratio is None else coverage_ratio >= 1.0
 
     return {
         "output": str(output_dir),
@@ -70,6 +79,14 @@ def _summarize(output_dir, work_root, mobile_sog_mb, min_points):
         "sr_weights_exist": (sr_manifest.get("model_preflight") or {}).get("weights_exist"),
         "sr_strategy_reason": sr_strategy.get("reason") or "",
         "output_size": sr_manifest.get("output_size") or [],
+        "extraction_selected_count": selected_frames,
+        "extraction_raw_count": extraction_manifest.get("raw_count"),
+        "extraction_target_frames": target_frames,
+        "extraction_coverage_ratio": coverage_ratio,
+        "extraction_meets_target": coverage_meets_target,
+        "extraction_selected_pass": extraction_manifest.get("selected_pass") or "",
+        "extraction_relaxed": extraction_manifest.get("relaxed"),
+        "extraction_projection": extraction_manifest.get("projection") or "",
         "input_score": (input_quality.get("verdict") or {}).get("score"),
         "sog_mb": score["sog_mb"],
         "ply_mb": score["ply_mb"],
@@ -86,8 +103,9 @@ def _print_table(rows):
     if not rows:
         return
     headers = [
-        "score", "mode", "req", "model", "scale", "eff_x", "fb", "psnr", "train_s",
-        "points", "sog_mb", "ply_mb", "output"
+        "score", "mode", "req", "model", "scale", "eff_x", "fb", "frames",
+        "target", "cov", "pass", "psnr", "train_s", "points", "sog_mb",
+        "ply_mb", "output"
     ]
     widths = {h: len(h) for h in headers}
     values = []
@@ -100,6 +118,10 @@ def _print_table(rows):
             "scale": str(row["sr_scale"]),
             "eff_x": str(row.get("sr_effective_scale") or "-"),
             "fb": "yes" if row.get("sr_fallback") else "-",
+            "frames": _fmt_optional(row.get("extraction_selected_count")),
+            "target": _fmt_optional(row.get("extraction_target_frames")),
+            "cov": _fmt_ratio(row.get("extraction_coverage_ratio")),
+            "pass": str(row.get("extraction_selected_pass") or "-"),
             "psnr": _fmt_optional(row.get("best_psnr")),
             "train_s": _fmt_optional(row.get("train_sec")),
             "points": str(row["point_count"]),
@@ -138,6 +160,7 @@ def _analysis(rows):
     winner = max(
         scored,
         key=lambda row: (
+            _coverage_rank(row),
             row.get("score", 0),
             row.get("best_psnr") if row.get("best_psnr") is not None else -1,
             row.get("point_count", 0),
@@ -146,22 +169,46 @@ def _analysis(rows):
     )
     fallback_rows = [row for row in rows if row.get("sr_fallback")]
     resize_rows = [row for row in rows if row.get("sr_mode") == "resize"]
+    low_coverage_rows = [
+        row for row in rows
+        if row.get("extraction_meets_target") is False
+    ]
+    relaxed_rows = [row for row in rows if row.get("extraction_relaxed") is True]
+    missing_coverage_rows = [
+        row for row in rows
+        if row.get("extraction_meets_target") is None
+    ]
     notes = []
     if fallback_rows:
         notes.append(
             f"{len(fallback_rows)} run(s) fell back; inspect sr_error/model_preflight before trusting learned SR."
+        )
+    if low_coverage_rows:
+        notes.append(
+            f"{len(low_coverage_rows)} run(s) missed the extraction coverage target; prefer higher-coverage runs before judging SR."
+        )
+    if relaxed_rows:
+        notes.append(
+            f"{len(relaxed_rows)} run(s) used relaxed extraction thresholds; inspect the frame contact sheet for blur."
+        )
+    if missing_coverage_rows:
+        notes.append(
+            f"{len(missing_coverage_rows)} run(s) lack extraction coverage metadata; rerun extraction with current code for stronger comparison."
         )
     if resize_rows:
         best_resize = max(resize_rows, key=lambda row: row.get("point_count", 0))
         off_like = [row for row in rows if row.get("sr_effective_scale") == "1"]
         if off_like and best_resize.get("point_count", 0) < max(r.get("point_count", 0) for r in off_like):
             notes.append("resize did not improve point count on this sweep; prefer off/auto unless visual review says otherwise.")
+    reason = "highest score among runs that meet extraction coverage, with PSNR/point-count tie-breakers; still requires visual review"
+    if winner.get("extraction_meets_target") is False:
+        reason = "best available score, but extraction coverage target was missed; capture/rerun coverage should be reviewed first"
     return {
         "recommended_output": winner["output"],
-        "recommended_reason": (
-            "highest score with PSNR/point-count tie-breakers; still requires visual review"
-        ),
+        "recommended_reason": reason,
         "fallback_count": len(fallback_rows),
+        "low_coverage_count": len(low_coverage_rows),
+        "relaxed_extraction_count": len(relaxed_rows),
         "notes": notes,
     }
 
@@ -172,6 +219,32 @@ def _fmt_optional(value):
     if isinstance(value, float):
         return f"{value:.2f}"
     return str(value)
+
+
+def _fmt_ratio(value):
+    if value is None:
+        return "-"
+    return f"{float(value):.2f}"
+
+
+def _coverage_ratio(selected, target):
+    try:
+        selected = float(selected)
+        target = float(target)
+    except (TypeError, ValueError):
+        return None
+    if target <= 0:
+        return None
+    return round(selected / target, 3)
+
+
+def _coverage_rank(row):
+    meets = row.get("extraction_meets_target")
+    if meets is True:
+        return 2
+    if meets is None:
+        return 1
+    return 0
 
 
 def _scale_label(value):
@@ -202,7 +275,10 @@ def main():
         _summarize(path, args.work_root, args.mobile_sog_mb, args.min_points)
         for path in args.outputs
     ]
-    rows.sort(key=lambda row: (row["score"], row["point_count"]), reverse=True)
+    rows.sort(
+        key=lambda row: (_coverage_rank(row), row["score"], row["point_count"]),
+        reverse=True,
+    )
     report = {
         "ok": all(row["ok"] for row in rows),
         "analysis": _analysis(rows),

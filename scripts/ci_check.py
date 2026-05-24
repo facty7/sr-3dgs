@@ -36,6 +36,7 @@ def main():
         ("cluster_clean_unit", [py, "scripts/test_cluster_clean.py"]),
         ("candidate_compare_unit", [py, "scripts/test_candidate_compare.py"]),
         ("scene_input_unit", [py, "scripts/test_assess_scene_inputs.py"]),
+        ("video_extractor_adaptive_unit", [py, "scripts/test_video_extractor_adaptive.py"]),
         ("super_resolution_modes_unit", [py, "scripts/test_super_resolution_modes.py"]),
         ("sr_model_preflight_unit", [py, "scripts/test_check_sr_models.py"]),
         ("video_pipeline_input_quality_unit", [py, "scripts/test_video_pipeline_input_quality.py"]),

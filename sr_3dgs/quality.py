@@ -195,6 +195,12 @@ def write_delivery_report(delivery_dir, scene_name, results, diagnostics):
     path = results.get("input_manifest")
     if path:
         files["input_manifest"] = _copy(path, delivery / "reports" / "input_manifest.json")
+    path = results.get("extraction_manifest")
+    if path:
+        files["extraction_manifest"] = _copy(
+            path,
+            delivery / "reports" / "extraction_manifest.json",
+        )
 
     reports_dir = delivery / "reports"
     for key in ("sr_manifest", "training_summary", "input_quality_frames", "input_quality_object"):

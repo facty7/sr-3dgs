@@ -53,6 +53,8 @@ class VideoPipelineConfig:
     extract_min_sharpness: float = 80.0        # Laplacian variance threshold
     extract_min_frame_diff: float = 0.015      # Minimum difference between frames
     extract_max_frames: int = 250              # Maximum frames to extract
+    extract_min_frames: int = 48               # Coverage target before relaxing filters
+    extract_adaptive: bool = True              # Relax filters when coverage is low
     extract_target_long_edge: int = 1920       # Resize while extracting (0 = no resize)
     equirect_face_size: int = 1024
     equirect_faces: tuple = ("front", "right", "back", "left")
@@ -227,6 +229,11 @@ class VideoPipeline:
                     min_sharpness=cfg.extract_min_sharpness,
                     min_frame_diff=cfg.extract_min_frame_diff,
                     max_source_frames=per_face_budget,
+                    min_source_frames=max(
+                        2,
+                        cfg.extract_min_frames // max(1, len(cfg.equirect_faces)),
+                    ),
+                    adaptive=cfg.extract_adaptive,
                     face_size=cfg.equirect_face_size,
                     faces=tuple(cfg.equirect_faces),
                     start_time=cfg.start_time,
@@ -238,17 +245,25 @@ class VideoPipeline:
                     min_sharpness=cfg.extract_min_sharpness,
                     min_frame_diff=cfg.extract_min_frame_diff,
                     max_frames=cfg.extract_max_frames,
+                    min_frames=cfg.extract_min_frames,
+                    adaptive=cfg.extract_adaptive,
                     target_long_edge=cfg.extract_target_long_edge,
                     start_time=cfg.start_time,
                     duration=cfg.duration,
                 )
             print(f"[Phase 1] Extracted {len(frames)} frames")
         else:
-            frames = sorted(self.frames_dir.glob("*"))
+            frames = sorted(
+                p for p in self.frames_dir.iterdir()
+                if p.suffix.lower() in {".png", ".jpg", ".jpeg"}
+            )
             print(f"[Phase 1] Using {len(frames)} existing frames")
 
         results["frames"] = str(self.frames_dir)
         results["frame_count"] = len(frames)
+        extraction_manifest = self.frames_dir / "extraction_manifest.json"
+        if extraction_manifest.exists():
+            results["extraction_manifest"] = str(extraction_manifest)
         frame_quality = self._assess_inputs(
             results,
             image_dir=self.frames_dir,

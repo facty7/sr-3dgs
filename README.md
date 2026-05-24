@@ -142,6 +142,11 @@ instead of fallback events. In `--sr_mode auto`, learned SR is selected only
 when the needed weights are already local; set `--sr_allow_download` to permit
 first-run weight downloads.
 
+Frame extraction is adaptive by default. The extractor first applies the preset
+blur/diversity filters, then relaxes them only if too few views survive for
+stable reconstruction. The selected pass, thresholds, and kept raw frames are
+recorded in `workspace_video/<scene>/frames/extraction_manifest.json`.
+
 Optional object crop:
 
 ```bash
@@ -174,6 +179,7 @@ python scripts/assess_scene_inputs.py workspace_video/object \
 - `workspace_video/<scene>/reports/input_quality_frames.html`
 - `workspace_video/<scene>/reports/input_quality_object.html` when
   `--object_mask auto` is enabled
+- `workspace_video/<scene>/frames/extraction_manifest.json`
 
 The assessment covers frame count, blur, near-duplicates, large viewpoint
 jumps, foreground-mask size, and masks touching image boundaries.

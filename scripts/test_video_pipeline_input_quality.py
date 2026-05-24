@@ -34,8 +34,11 @@ def main():
         pipeline.frames_dir.mkdir(parents=True)
         for idx in range(6):
             _write_frame(pipeline.frames_dir / f"frame_{idx:03d}.png", idx)
+        extraction_manifest = pipeline.frames_dir / "extraction_manifest.json"
+        extraction_manifest.write_text('{"selected_pass":"coverage_1"}\n', encoding="utf-8")
 
         results = {}
+        results["extraction_manifest"] = str(extraction_manifest)
         pipeline._assess_inputs(
             results,
             image_dir=pipeline.frames_dir,
@@ -56,8 +59,10 @@ def main():
         )
         manifest = (delivery / "manifest.json").read_text(encoding="utf-8")
         assert "input_quality_frames" in manifest, manifest
+        assert "extraction_manifest" in manifest, manifest
         assert (delivery / "reports" / "input_quality_frames.json").exists()
         assert (delivery / "reports" / "input_quality_frames.html").exists()
+        assert (delivery / "reports" / "extraction_manifest.json").exists()
 
 
 if __name__ == "__main__":
