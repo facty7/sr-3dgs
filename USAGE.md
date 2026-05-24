@@ -121,12 +121,13 @@ python scripts/summarize_sr_sweep.py \
 
 The summary table reports `eff_x`, the actual SR scale inferred from the
 manifest. A `model` run that falls back safely can therefore show requested
-`scale=2` with `eff_x=1`. The `frames`, `target`, `cov`, and `pass` columns
-come from `frames/extraction_manifest.json` so low-coverage phone captures do
-not outrank better-covered runs only because their delivery score is higher.
-The `fb` column marks SR fallback runs, and the JSON report includes a
-lightweight `analysis` block with a recommended output and notes for visual
-review.
+`scale=2` with `eff_x=1`. The `frames`, `target`, `cov`, `span`, and `pass`
+columns come from `frames/extraction_manifest.json` so low-coverage phone
+captures do not outrank better-covered runs only because their delivery score
+is higher. `span` is the selected-frame coverage across the source timeline;
+for turntable-style phone videos it should usually be close to `1.00`. The
+`fb` column marks SR fallback runs, and the JSON report includes a lightweight
+`analysis` block with a recommended output and notes for visual review.
 
 ## Candidate Cleanup
 

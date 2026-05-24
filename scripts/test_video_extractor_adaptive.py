@@ -22,6 +22,25 @@ def _write_frame(path, idx):
     cv2.imwrite(str(path), arr)
 
 
+def _write_sharp_frame(path, idx):
+    arr = np.zeros((80, 80, 3), dtype=np.uint8)
+    offset = idx % 8
+    arr[:, :] = 20 + offset
+    cv2.rectangle(arr, (8 + offset, 8), (55 + offset, 55), (230, 230, 230), -1)
+    cv2.line(arr, (0, idx % 80), (79, (idx * 3) % 80), (40, 180, 240), 2)
+    cv2.putText(
+        arr,
+        str(idx % 100),
+        (10, 70),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.6,
+        (255, 255, 255),
+        1,
+        cv2.LINE_AA,
+    )
+    cv2.imwrite(str(path), arr)
+
+
 def main():
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -54,6 +73,32 @@ def main():
         assert relaxed_manifest["selected_pass"].startswith("coverage_"), relaxed_manifest
         assert len(relaxed_manifest["passes"]) > 1, relaxed_manifest
         assert relaxed_manifest["selected_raw_files"], relaxed_manifest
+
+        long_frames = []
+        for idx in range(30):
+            path = root / f"long_{idx:03d}.png"
+            _write_sharp_frame(path, idx)
+            long_frames.append(path)
+
+        selected, manifest = select_frames_adaptive(
+            long_frames,
+            min_sharpness=1.0,
+            min_frame_diff=0.0,
+            max_frames=6,
+            min_frames=6,
+            adaptive=False,
+        )
+
+        selected_names = [path.name for path in selected]
+        selected_indices = [int(name.split("_")[1].split(".")[0]) for name in selected_names]
+        assert len(selected) == 6, manifest
+        assert selected_indices[0] == 0, selected_indices
+        assert selected_indices[-1] == 29, selected_indices
+        assert any(idx > 20 for idx in selected_indices), selected_indices
+        strict_pass = manifest["passes"][0]
+        assert strict_pass["eligible_count"] == 30, strict_pass
+        assert strict_pass["temporal_thinned_count"] == 24, strict_pass
+        assert strict_pass["selected_raw_index_coverage"] == 1.0, strict_pass
 
 
 if __name__ == "__main__":

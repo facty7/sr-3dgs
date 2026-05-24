@@ -83,6 +83,7 @@ def _filter_raw_frames(
     import cv2
 
     kept = []
+    kept_indices = []
     last_kept_img = None
     lap_values = []
     diff_values = []
@@ -90,10 +91,7 @@ def _filter_raw_frames(
     skipped_duplicate = 0
     unreadable = 0
 
-    for fpath in raw_frames:
-        if len(kept) >= max_frames:
-            break
-
+    for raw_index, fpath in enumerate(raw_frames):
         img = cv2.imread(str(fpath))
         if img is None:
             unreadable += 1
@@ -115,15 +113,28 @@ def _filter_raw_frames(
                 continue
 
         kept.append(fpath)
+        kept_indices.append(raw_index)
         last_kept_img = img_rgb
+
+    eligible_count = len(kept)
+    eligible_indices = list(kept_indices)
+    if max_frames > 0 and len(kept) > max_frames:
+        sampled_positions = _evenly_spaced_indices(len(kept), max_frames)
+        kept = [kept[idx] for idx in sampled_positions]
+        kept_indices = [kept_indices[idx] for idx in sampled_positions]
+    elif max_frames <= 0:
+        kept = []
+        kept_indices = []
 
     stats = {
         "min_sharpness": float(min_sharpness),
         "min_frame_diff": float(min_frame_diff),
+        "eligible_count": eligible_count,
         "kept_count": len(kept),
         "skipped_blur": skipped_blur,
         "skipped_near_duplicate": skipped_duplicate,
         "unreadable": unreadable,
+        "temporal_thinned_count": max(0, eligible_count - len(kept)),
     }
     if lap_values:
         stats["sharpness_min"] = float(np.min(lap_values))
@@ -132,7 +143,27 @@ def _filter_raw_frames(
     if diff_values:
         stats["frame_diff_p10"] = float(np.percentile(diff_values, 10))
         stats["frame_diff_p50"] = float(np.percentile(diff_values, 50))
+    if eligible_indices:
+        stats["eligible_first_raw_index"] = int(eligible_indices[0])
+        stats["eligible_last_raw_index"] = int(eligible_indices[-1])
+    if kept_indices:
+        stats["selected_first_raw_index"] = int(kept_indices[0])
+        stats["selected_last_raw_index"] = int(kept_indices[-1])
+        if len(raw_frames) > 1:
+            span = kept_indices[-1] - kept_indices[0]
+            stats["selected_raw_index_coverage"] = round(
+                float(span) / float(len(raw_frames) - 1),
+                3,
+            )
     return kept, stats
+
+
+def _evenly_spaced_indices(length: int, count: int) -> List[int]:
+    if count <= 0 or length <= 0:
+        return []
+    if length <= count:
+        return list(range(length))
+    return [int(round(pos)) for pos in np.linspace(0, length - 1, count)]
 
 
 def select_frames_adaptive(

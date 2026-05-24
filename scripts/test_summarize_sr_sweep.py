@@ -84,6 +84,7 @@ def _write_workspace_meta(
     selected_count: int,
     target_frames: int,
     psnr: float,
+    temporal_coverage: float = 1.0,
 ):
     (workspace / "sr_images").mkdir(parents=True)
     (workspace / "reports").mkdir()
@@ -107,6 +108,14 @@ def _write_workspace_meta(
             "selected_pass": "coverage_1" if selected_count >= target_frames else "coverage_3",
             "relaxed": True,
             "projection": "perspective",
+            "passes": [
+                {
+                    "name": "coverage_1" if selected_count >= target_frames else "coverage_3",
+                    "kept_count": selected_count,
+                    "selected_raw_index_coverage": temporal_coverage,
+                    "temporal_thinned_count": max(0, 120 - selected_count),
+                }
+            ],
         }),
         encoding="utf-8",
     )
@@ -253,9 +262,56 @@ def main():
         assert rows["phone_off_x1"]["extraction_meets_target"] is True, rows
         assert rows["phone_resize_x2"]["extraction_coverage_ratio"] < 1.0, rows
         assert rows["phone_off_x1"]["extraction_coverage_ratio"] >= 1.0, rows
+        assert rows["phone_off_x1"]["extraction_temporal_coverage"] == 1.0, rows
         assert data3["analysis"]["recommended_output"].endswith("phone_off_x1"), data3
         assert data3["analysis"]["low_coverage_count"] == 1, data3
+        assert data3["analysis"]["low_temporal_coverage_count"] == 0, data3
         assert data3["analysis"]["relaxed_extraction_count"] == 2, data3
+
+        partial = out_root / "phone_partial_x1"
+        _write_min_delivery(partial, partial.name)
+        _write_workspace_meta(
+            work_root / partial.name,
+            mode="off",
+            selected_count=72,
+            target_frames=64,
+            psnr=25.0,
+            temporal_coverage=0.45,
+        )
+        full = out_root / "phone_full_x1"
+        _write_min_delivery(full, full.name)
+        _write_workspace_meta(
+            work_root / full.name,
+            mode="off",
+            selected_count=72,
+            target_frames=64,
+            psnr=23.0,
+            temporal_coverage=1.0,
+        )
+        report4 = root / "summary_temporal.json"
+        subprocess.run(
+            [
+                sys.executable,
+                "scripts/summarize_sr_sweep.py",
+                str(partial),
+                str(full),
+                "--work_root",
+                str(work_root),
+                "--report",
+                str(report4),
+                "--min_points",
+                "1",
+            ],
+            cwd=str(ROOT),
+            check=True,
+            text=True,
+            capture_output=True,
+        )
+        data4 = json.loads(report4.read_text(encoding="utf-8"))
+        rows4 = {Path(row["output"]).name: row for row in data4["results"]}
+        assert rows4["phone_partial_x1"]["extraction_temporal_coverage"] == 0.45, data4
+        assert data4["analysis"]["low_temporal_coverage_count"] == 1, data4
+        assert data4["analysis"]["recommended_output"].endswith("phone_full_x1"), data4
 
 
 if __name__ == "__main__":
