@@ -102,6 +102,24 @@ python scripts/run_video_pipeline.py \
   --cluster_clean
 ```
 
+超分是可选项。默认 `standard` preset 是几何优先流程，会保留抽取帧的原始分辨率。只有在输入足够清晰、显存足够时，才建议启用 learned SR：
+
+```bash
+# 不使用 learned SR；速度最快，也最不容易引入虚构纹理。
+python scripts/run_video_pipeline.py --video input_videos/object.mp4 \
+  --preset standard --sr_mode off --sr_scale 1
+
+# 用确定性的 Lanczos 放大，适合做对照实验。
+python scripts/run_video_pipeline.py --video input_videos/object.mp4 \
+  --preset standard --sr_mode resize --sr_scale 2
+
+# 训练前启用 learned SR。
+python scripts/run_video_pipeline.py --video input_videos/object.mp4 \
+  --preset quality --sr_mode model --sr_model real-esrgan --sr_scale 2
+```
+
+每次运行都会写入 `workspace_video/<scene>/sr_images/sr_manifest.json`，记录本次 SR 模式、scale、输出分辨率和 fallback 状态。learned SR 带有加载和进度超时；如果模型无法加载或长时间没有产出，pipeline 会回退到原始分辨率帧，并在 manifest 中记录 `effective_mode`、`effective_scale` 和 `model_preflight`。设置 `--sr_strict_model` 可将 learned SR 失败作为错误处理，而不是自动回退。在 `--sr_mode auto` 中，只有权重已经在本地时才会自动选择 learned SR；设置 `--sr_allow_download` 可允许首次运行时下载权重。
+
 可选物体裁剪：
 
 ```bash

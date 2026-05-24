@@ -10,6 +10,7 @@ basicsr>=1.4.2
 
 # 3D Gaussian Splatting
 gsplat>=1.3.0
+ninja>=1.11.0
 
 # COLMAP Python bindings (for data parsing)
 # pycolmap can be tricky to install; our code has a fallback binary parser

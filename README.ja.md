@@ -60,7 +60,7 @@ SOG ファイル名にはタイムスタンプを含め、再公開時のブラ�
 
 生物や変形する対象は、撮影中に実質的に静止している場合を除き、主な対象外です。
 
-詳細は [docs/CAPTURE_GUIDE.md](docs/CAPTURE_GUIDE.md) を参照してください。
+詳細は [docs/CAPTURE_GUIDE.md](docs/CAPTURE_GUIDE.md) を参照。
 
 ## インストール
 
@@ -102,6 +102,24 @@ python scripts/run_video_pipeline.py \
   --object_mask auto \
   --cluster_clean
 ```
+
+超解像は任意です。既定の `standard` preset はジオメトリ優先で、抽出フレームを元の解像度のまま使います。learned SR は、入力が十分にシャープで、VRAM に余裕がある場合のオプションです。
+
+```bash
+# learned SR なし。最速で、生成的な細部追加のリスクが最も低い設定。
+python scripts/run_video_pipeline.py --video input_videos/object.mp4 \
+  --preset standard --sr_mode off --sr_scale 1
+
+# 比較実験用の決定的な Lanczos アップスケール。
+python scripts/run_video_pipeline.py --video input_videos/object.mp4 \
+  --preset standard --sr_mode resize --sr_scale 2
+
+# 学習前に learned SR を適用。
+python scripts/run_video_pipeline.py --video input_videos/object.mp4 \
+  --preset quality --sr_mode model --sr_model real-esrgan --sr_scale 2
+```
+
+各実行では `workspace_video/<scene>/sr_images/sr_manifest.json` に、SR mode、scale、出力解像度、fallback 状態が記録されます。learned SR にはロードと進捗のタイムアウトがあり、モデルがロードできない、または長時間出力が進まない場合は元解像度のフレームに fallback し、manifest に `effective_mode`、`effective_scale`、`model_preflight` を記録します。`--sr_strict_model` は learned SR の失敗を fallback ではなくエラーとして扱います。`--sr_mode auto` では、必要な weights がローカルにある場合だけ learned SR を自動選択します。`--sr_allow_download` は初回の weights ダウンロードを許可します。
 
 任意のオブジェクト crop：
 
@@ -203,13 +221,13 @@ PYTHONDONTWRITEBYTECODE=1 python scripts/release_readiness.py --include_output
 - [Nerfstudio / Splatfacto](https://docs.nerf.studio/)
 - [PlayCanvas SuperSplat and SOG tooling](https://github.com/playcanvas)
 
-プロジェクトの位置づけは [docs/PROJECT_POSITIONING.md](docs/PROJECT_POSITIONING.md) を参照してください。
+プロジェクトの位置づけは [docs/PROJECT_POSITIONING.md](docs/PROJECT_POSITIONING.md) を参照。
 
 ## コントリビューション
 
 公開可能なテスト素材、クリーンアップ手法、セグメンテーションバックエンド、benchmark シーン、ドキュメントの貢献を歓迎します。
 
-[CONTRIBUTING.md](CONTRIBUTING.md) を参照してください。
+[CONTRIBUTING.md](CONTRIBUTING.md) を参照。
 
 ## License
 

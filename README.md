@@ -114,6 +114,34 @@ python scripts/run_video_pipeline.py \
   --cluster_clean
 ```
 
+Super-resolution is optional. The default `standard` preset is geometry-first
+and keeps extracted frames at their original resolution. Enable learned SR only
+when the input is sharp enough and the machine has enough VRAM:
+
+```bash
+# No learned SR; fastest and least likely to hallucinate detail.
+python scripts/run_video_pipeline.py --video input_videos/object.mp4 \
+  --preset standard --sr_mode off --sr_scale 1
+
+# Deterministic upscale for ablation tests.
+python scripts/run_video_pipeline.py --video input_videos/object.mp4 \
+  --preset standard --sr_mode resize --sr_scale 2
+
+# Learned SR before training.
+python scripts/run_video_pipeline.py --video input_videos/object.mp4 \
+  --preset quality --sr_mode model --sr_model real-esrgan --sr_scale 2
+```
+
+Each run writes `workspace_video/<scene>/sr_images/sr_manifest.json` so the
+chosen SR mode, scale, output resolution, and fallback status are recorded.
+Learned SR runs are guarded by load/progress timeouts; if the model cannot
+load or make progress, the pipeline falls back to original-resolution frames
+and records `effective_mode`, `effective_scale`, and `model_preflight` in the
+manifest. Set `--sr_strict_model` to treat learned-SR failures as errors
+instead of fallback events. In `--sr_mode auto`, learned SR is selected only
+when the needed weights are already local; set `--sr_allow_download` to permit
+first-run weight downloads.
+
 Optional object crop:
 
 ```bash

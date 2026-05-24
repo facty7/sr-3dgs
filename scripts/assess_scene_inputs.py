@@ -98,6 +98,11 @@ def _read_gray(path, max_side=512):
     return gray
 
 
+def _image_size(path):
+    with Image.open(path) as img:
+        return [int(img.size[0]), int(img.size[1])]
+
+
 def _sharpness(gray):
     return float(cv2.Laplacian(gray, cv2.CV_64F).var())
 
@@ -217,8 +222,8 @@ def assess_scene(scene_dir, images_dir=None, masks_dir=None, max_frames=160):
     prev = None
     dimensions = []
     for path in sampled:
+        dimensions.append(_image_size(path))
         gray = _read_gray(path)
-        dimensions.append([int(gray.shape[1]), int(gray.shape[0])])
         sharpness.append(_sharpness(gray))
         diffs.append(_diff(prev, gray))
         prev = gray

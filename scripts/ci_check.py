@@ -3,6 +3,7 @@
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -12,7 +13,9 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def _run(name, cmd):
-    proc = subprocess.run(cmd, cwd=str(ROOT), text=True, capture_output=True)
+    env = dict(os.environ)
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    proc = subprocess.run(cmd, cwd=str(ROOT), text=True, capture_output=True, env=env)
     return {
         "name": name,
         "ok": proc.returncode == 0,
@@ -33,7 +36,11 @@ def main():
         ("cluster_clean_unit", [py, "scripts/test_cluster_clean.py"]),
         ("candidate_compare_unit", [py, "scripts/test_candidate_compare.py"]),
         ("scene_input_unit", [py, "scripts/test_assess_scene_inputs.py"]),
+        ("super_resolution_modes_unit", [py, "scripts/test_super_resolution_modes.py"]),
+        ("sr_model_preflight_unit", [py, "scripts/test_check_sr_models.py"]),
         ("video_pipeline_input_quality_unit", [py, "scripts/test_video_pipeline_input_quality.py"]),
+        ("plan_sr_sweep_unit", [py, "scripts/test_plan_sr_sweep.py"]),
+        ("summarize_sr_sweep_unit", [py, "scripts/test_summarize_sr_sweep.py"]),
         ("core_crop_unit", [py, "scripts/test_crop_ply_by_core.py"]),
         ("confidence_filter_unit", [py, "scripts/test_filter_ply_confidence.py"]),
         ("publish_candidate_unit", [py, "scripts/test_publish_clean_candidate.py"]),

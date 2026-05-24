@@ -33,5 +33,5 @@ python scripts/run_video_pipeline.py \
   --cluster_clean
 ```
 
-Keep generated workspaces on persistent storage if you plan to stop and resume
-the instance.
+Keep generated workspaces on persistent storage when stop/resume workflows are
+expected.

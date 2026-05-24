@@ -44,6 +44,71 @@ Open:
 http://127.0.0.1:8765/output/object/START_HERE.html
 ```
 
+## Super-Resolution Modes
+
+Use explicit SR modes when comparing output quality:
+
+```bash
+# Original extracted frames.
+python scripts/run_video_pipeline.py --video input_videos/object.mp4 \
+  --preset standard --sr_mode off --sr_scale 1
+
+# Deterministic non-learned upscale.
+python scripts/run_video_pipeline.py --video input_videos/object.mp4 \
+  --preset standard --sr_mode resize --sr_scale 2
+
+# Learned SR for sharp, small inputs.
+python scripts/run_video_pipeline.py --video input_videos/object.mp4 \
+  --preset quality --sr_mode model --sr_model real-esrgan --sr_scale 2
+```
+
+Check learned-SR model weights before a long run:
+
+```bash
+python scripts/check_sr_models.py --sr_model real-esrgan --sr_scale 2
+```
+
+Learned SR is guarded by load and progress timeouts. Tune them with
+`--sr_model_load_timeout` and `--sr_frame_timeout`; `<=0` disables timeout
+fallback and should be reserved for controlled debugging. Check
+`workspace_video/<scene>/sr_images/sr_manifest.json`: `scale` is the requested
+scale, while `effective_scale` is what actually reached training.
+`model_preflight` records whether local weights were found or a download was
+needed. Add `--sr_strict_model` when a learned-SR run should fail instead of
+falling back. In `--sr_mode auto`, learned SR is selected only when the needed
+weights are already local; add `--sr_allow_download` to permit automatic
+weight downloads.
+
+Plan a reproducible sweep without starting heavy jobs:
+
+```bash
+python scripts/plan_sr_sweep.py \
+  --video input_videos/object.mp4 \
+  --preset standard \
+  --cluster_clean \
+  --no_showcase
+```
+
+Add `--run` only for launching all planned runs.
+
+After the runs finish, summarize the delivery metrics and SR metadata:
+
+```bash
+python scripts/summarize_sr_sweep.py \
+  output/sr_sweeps/object_off_x1 \
+  output/sr_sweeps/object_resize_x2 \
+  output/sr_sweeps/object_auto_x2 \
+  output/sr_sweeps/object_model_real-esrgan_x2 \
+  --work_root workspace_video/sr_sweeps \
+  --report workspace_video/sr_sweeps/sr_sweep_summary.json
+```
+
+The summary table reports `eff_x`, the actual SR scale inferred from the
+manifest. A `model` run that falls back safely can therefore show requested
+`scale=2` with `eff_x=1`. The `fb` column marks SR fallback runs, and the JSON
+report includes a lightweight `analysis` block with a recommended output and
+notes for visual review.
+
 ## Candidate Cleanup
 
 Generate and compare cleanup candidates before running heavy SOG conversion.
@@ -81,7 +146,7 @@ python scripts/publish_clean_candidate.py \
   --asset_name object
 ```
 
-Only run SOG conversion when you intentionally want the web/mobile package:
+Run SOG conversion only when the web/mobile package is required:
 
 ```bash
 python scripts/preflight_heavy.py \

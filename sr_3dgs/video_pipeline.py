@@ -27,6 +27,12 @@ from .utils import ensure_dir, check_dependencies, print_dep_check, get_gpu_memo
 from .input_analyzer import analyze_video
 from .quality import diagnose_paths, write_delivery_report
 from .sog_export import export_sog, export_sog_viewer
+from .sr_strategy import (
+    adjust_strategy_for_model_preflight,
+    recommend_sr_strategy,
+    write_strategy,
+)
+from .step2_super_resolution import SuperResolutionProcessor
 
 
 @dataclass
@@ -56,10 +62,15 @@ class VideoPipelineConfig:
     duration: Optional[float] = None
 
     # SR settings (passed through to PipelineConfig)
+    sr_mode: str = "auto"                     # auto | off | resize | model
     sr_model: str = "real-esrgan"
     sr_scale: int = 4
     sr_device: str = "cuda"
     sr_kwargs: Dict[str, Any] = field(default_factory=dict)
+    sr_model_load_timeout_s: int = 180
+    sr_frame_timeout_s: int = 300
+    sr_strict_model: bool = False
+    sr_allow_download: bool = False
 
     # COLMAP settings
     colmap_camera_model: str = "SIMPLE_PINHOLE"
@@ -161,6 +172,8 @@ class VideoPipeline:
         self.delivery_dir = self.work_dir / "delivery"
         self.final_output_dir = Path(cfg.final_output_dir) / video_name
         self.reports_dir = self.work_dir / "reports"
+        self.sr_dir = self.work_dir / "sr_images"
+        self.sr_strategy_path = self.reports_dir / "sr_strategy.json"
 
     def run(self, skip_frame_extraction: bool = False,
             skip_dep_check: bool = False) -> Dict[str, str]:
@@ -236,7 +249,46 @@ class VideoPipeline:
 
         results["frames"] = str(self.frames_dir)
         results["frame_count"] = len(frames)
-        self._assess_inputs(results, image_dir=self.frames_dir, report_name="input_quality_frames")
+        frame_quality = self._assess_inputs(
+            results,
+            image_dir=self.frames_dir,
+            report_name="input_quality_frames",
+        )
+        effective_sr_mode = cfg.sr_mode
+        effective_sr_model = cfg.sr_model
+        effective_sr_scale = cfg.sr_scale
+        if cfg.sr_mode == "auto":
+            strategy = recommend_sr_strategy(
+                frame_quality,
+                preferred_model=cfg.sr_model,
+                preferred_scale=cfg.sr_scale,
+                vram_gb=get_gpu_memory().get("total_gb", 0.0),
+            )
+            if strategy.mode == "model":
+                preflight = SuperResolutionProcessor(
+                    image_dir=str(self.frames_dir),
+                    output_dir=str(self.sr_dir),
+                    sr_model_name=strategy.model,
+                    scale=strategy.scale,
+                    device=cfg.sr_device,
+                    model_kwargs=cfg.sr_kwargs,
+                    mode="model",
+                )._model_preflight()
+                strategy = adjust_strategy_for_model_preflight(
+                    strategy,
+                    preflight,
+                    allow_download=cfg.sr_allow_download,
+                )
+            effective_sr_mode = strategy.mode
+            effective_sr_model = strategy.model
+            effective_sr_scale = strategy.scale
+            write_strategy(self.sr_strategy_path, strategy)
+            results["sr_strategy"] = str(self.sr_strategy_path)
+            print(
+                "[SRStrategy] "
+                f"{strategy.mode} / {strategy.model} x{strategy.scale}: "
+                f"{strategy.reason}"
+            )
 
         # ── Phase 2: SR + 3DGS (reuse existing pipeline) ──
         print(f"\n{'─'*40}")
@@ -246,10 +298,14 @@ class VideoPipeline:
         pipeline_cfg = PipelineConfig(
             input_dir=str(self.frames_dir),
             work_dir=str(self.work_dir),
-            sr_model=cfg.sr_model,
-            sr_scale=cfg.sr_scale,
+            sr_mode=effective_sr_mode,
+            sr_model=effective_sr_model,
+            sr_scale=effective_sr_scale,
             sr_device=cfg.sr_device,
             sr_kwargs=cfg.sr_kwargs,
+            sr_model_load_timeout_s=cfg.sr_model_load_timeout_s,
+            sr_frame_timeout_s=cfg.sr_frame_timeout_s,
+            sr_strict_model=cfg.sr_strict_model,
             colmap_camera_model=cfg.colmap_camera_model,
             colmap_gpu=cfg.colmap_gpu,
             train_max_steps=cfg.train_max_steps,
@@ -267,6 +323,9 @@ class VideoPipeline:
 
         pipeline = Pipeline(pipeline_cfg)
         pipeline.run(start_step=1, end_step=3)
+        sr_manifest = pipeline._step_results.get("sr_manifest")
+        if sr_manifest:
+            results["sr_manifest"] = str(sr_manifest)
         if cfg.object_bbox:
             self._crop_aligned_for_object(pipeline)
         if cfg.object_mask == "auto":
@@ -279,6 +338,9 @@ class VideoPipeline:
             )
         pipeline.run(start_step=4, end_step=4)
         results["checkpoint"] = pipeline._step_results.get("checkpoint", "")
+        training_summary = pipeline._step_results.get("training_summary")
+        if training_summary:
+            results["training_summary"] = str(training_summary)
         pipeline.run_step5()
         self._cluster_clean_standard_ply(results)
 
@@ -375,8 +437,10 @@ class VideoPipeline:
                 f"{report_name}: {verdict.get('score', 'n/a')}/100 "
                 f"({', '.join(verdict.get('problems') or ['no major input problems'])})"
             )
+            return report
         except Exception as exc:
             print(f"[InputQuality] WARNING: failed to assess {report_name}: {exc}")
+            return None
 
     def _export_splat(self, results: Dict):
         """Export checkpoint to .splat format."""

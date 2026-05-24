@@ -76,7 +76,7 @@ Current limitations:
 
 ## Image Folders
 
-Use image folders when you already have clean stills:
+Image folders are useful when clean stills already exist:
 
 - Keep EXIF if possible.
 - Remove blurry or duplicate images.
@@ -95,9 +95,9 @@ python scripts/assess_scene_inputs.py workspace_video/object \
 ```
 
 The report checks frame count, blur, near-duplicate views, large frame jumps,
-mask foreground size, and whether masks cut into the image edges. It is meant
-to answer a practical question: should you reshoot or adjust extraction/masks
-before tuning training settings?
+mask foreground size, and whether masks cut into the image edges. It answers a
+practical question before longer training runs: whether capture, frame
+extraction, or masks need adjustment.
 
 ## Common Failure Modes
 

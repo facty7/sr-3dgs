@@ -13,8 +13,11 @@ Usage:
 
     # Custom settings
     python run_video_pipeline.py --video input.mp4 \
-        --extract_fps 5 --sr_model "real-esrgan" --sr_scale 4 \
+        --extract_fps 5 --sr_mode model --sr_model "real-esrgan" --sr_scale 4 \
         --train_steps 20000 --output_name "client_scene"
+
+    # Geometry-first run without learned super-resolution
+    python run_video_pipeline.py --video input.mp4 --sr_mode off --sr_scale 1
 
 Output (in workspace_video/<name>/):
     <name>.splat           — Compressed 3D model (~5-30 MB)
@@ -42,6 +45,7 @@ PRESETS = {
         "extract_min_sharpness": 30.0,
         "extract_min_frame_diff": 0.05,
         "extract_max_frames": 30,
+        "sr_mode": "off",
         "sr_model": "real-esrgan",
         "sr_scale": 1,
         "train_max_steps": 1000,
@@ -55,6 +59,7 @@ PRESETS = {
         "extract_min_sharpness": 50.0,
         "extract_min_frame_diff": 0.03,
         "extract_max_frames": 100,
+        "sr_mode": "off",
         "sr_model": "real-esrgan",
         "sr_scale": 1,
         "train_max_steps": 8_000,
@@ -68,6 +73,7 @@ PRESETS = {
         "extract_min_sharpness": 80.0,
         "extract_min_frame_diff": 0.02,
         "extract_max_frames": 200,
+        "sr_mode": "off",
         "sr_model": "real-esrgan",
         "sr_scale": 1,
         "train_max_steps": 15_000,
@@ -81,6 +87,7 @@ PRESETS = {
         "extract_min_sharpness": 100.0,
         "extract_min_frame_diff": 0.01,
         "extract_max_frames": 300,
+        "sr_mode": "model",
         "sr_model": "real-esrgan",
         "sr_scale": 2,
         "train_max_steps": 20_000,
@@ -94,6 +101,7 @@ PRESETS = {
         "extract_min_sharpness": 30.0,
         "extract_min_frame_diff": 0.02,
         "extract_max_frames": 250,
+        "sr_mode": "model",
         "sr_model": "supir",
         "sr_scale": 4,
         "sr_kwargs": {
@@ -111,6 +119,7 @@ PRESETS = {
         "extract_min_sharpness": 80.0,
         "extract_min_frame_diff": 0.015,
         "extract_max_frames": 350,
+        "sr_mode": "model",
         "sr_model": "real-esrgan",
         "sr_scale": 2,
         "train_max_steps": 25_000,
@@ -154,10 +163,21 @@ def main():
                         help="Comma-separated cube faces for 360 extraction")
 
     # SR overrides
+    parser.add_argument("--sr_mode", type=str, default=None,
+                        choices=["auto", "off", "resize", "model"],
+                        help="SR strategy. off copies frames, resize uses Lanczos, model runs learned SR.")
     parser.add_argument("--sr_model", type=str, default=None,
-                        choices=["real-esrgan", "dat", "supir", "basicvsr++"])
+                        choices=["real-esrgan", "dat", "supir", "basicvsr++", "resize", "off"])
     parser.add_argument("--sr_scale", type=int, default=None,
-                        choices=[2, 4, 8])
+                        choices=[1, 2, 4, 8])
+    parser.add_argument("--sr_model_load_timeout", type=int, default=None,
+                        help="Seconds to wait for learned SR before fallback; <=0 disables")
+    parser.add_argument("--sr_frame_timeout", type=int, default=None,
+                        help="Seconds without SR image progress before fallback; <=0 disables")
+    parser.add_argument("--sr_strict_model", action="store_true",
+                        help="Fail instead of falling back when --sr_mode model cannot run")
+    parser.add_argument("--sr_allow_download", action="store_true",
+                        help="Allow --sr_mode auto to choose learned SR when weights must be downloaded")
 
     # Training overrides
     parser.add_argument("--train_steps", type=int, default=None)
@@ -241,9 +261,22 @@ def run_single(args):
         equirect_faces=tuple(v.strip() for v in args.equirect_faces.split(",") if v.strip()),
         start_time=args.start_time,
         duration=args.duration,
+        sr_mode=args.sr_mode or preset.get("sr_mode", "auto"),
         sr_model=args.sr_model or preset.get("sr_model", "real-esrgan"),
         sr_scale=args.sr_scale or preset.get("sr_scale", 4),
         sr_kwargs=preset.get("sr_kwargs", {}),
+        sr_model_load_timeout_s=(
+            args.sr_model_load_timeout
+            if args.sr_model_load_timeout is not None
+            else preset.get("sr_model_load_timeout_s", 180)
+        ),
+        sr_frame_timeout_s=(
+            args.sr_frame_timeout
+            if args.sr_frame_timeout is not None
+            else preset.get("sr_frame_timeout_s", 300)
+        ),
+        sr_strict_model=args.sr_strict_model,
+        sr_allow_download=args.sr_allow_download,
         train_max_steps=args.train_steps or preset.get("train_max_steps", 25_000),
         train_warmup_steps=preset.get("train_warmup_steps", 800),
         train_data_factor=args.train_data_factor or preset.get("train_data_factor", 1),

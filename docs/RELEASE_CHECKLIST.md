@@ -46,8 +46,8 @@ PYTHONDONTWRITEBYTECODE=1 python scripts/qa_render_chrome.py \
   --enable_heavy_browser
 ```
 
-Run this only when the machine is idle and you explicitly want WebGL screenshot
-evidence. It is not part of default CI or smoke checks.
+Run this only on an idle machine when WebGL screenshot evidence is required. It
+is not part of default CI or smoke checks.
 
 ## Quality Bar
 
@@ -97,9 +97,8 @@ PYTHONDONTWRITEBYTECODE=1 python scripts/crop_ply_by_core.py \
   --margin 0.08
 ```
 
-Use `--convert_sog` only when you explicitly want to generate the web/mobile
-SOG package. Use `--replace` to archive an existing final output before
-replacing it.
+Use `--convert_sog` only when the web/mobile SOG package is required. Use
+`--replace` to archive an existing final output before replacing it.
 
 Heavy conversion requires both preflight and an explicit confirmation flag:
 

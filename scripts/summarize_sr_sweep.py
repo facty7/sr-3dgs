@@ -1,0 +1,229 @@
+#!/usr/bin/env python3
+"""Summarize SR sweep results across output/workspace folders."""
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from scripts.score_output import _score_delivery
+
+
+def _read_json(path):
+    path = Path(path)
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _workspace_for_output(output_dir, work_root):
+    output_dir = Path(output_dir)
+    if (output_dir / "sr_images" / "sr_manifest.json").exists():
+        return output_dir
+    if output_dir.name == "delivery":
+        parent = output_dir.parent
+        if (parent / "sr_images" / "sr_manifest.json").exists():
+            return parent
+    if not work_root:
+        return None
+    candidate = Path(work_root) / output_dir.name
+    return candidate if candidate.exists() else None
+
+
+def _summarize(output_dir, work_root, mobile_sog_mb, min_points):
+    output_dir = Path(output_dir)
+    workspace = _workspace_for_output(output_dir, work_root)
+    score = _score_delivery(output_dir, mobile_sog_mb, min_points)
+
+    sr_manifest = {}
+    sr_strategy = {}
+    input_quality = {}
+    training_summary = {}
+    if workspace:
+        sr_manifest = _read_json(workspace / "sr_images" / "sr_manifest.json")
+        sr_strategy = _read_json(workspace / "reports" / "sr_strategy.json")
+        input_quality = _read_json(workspace / "reports" / "input_quality_frames.json")
+        training_summary = _read_json(workspace / "train_output" / "training_summary.json")
+
+    return {
+        "output": str(output_dir),
+        "workspace": str(workspace) if workspace else "",
+        "score": score["score"],
+        "ok": score["ok"],
+        "problems": score["problems"],
+        "sr_mode": sr_manifest.get("effective_mode") or sr_strategy.get("mode") or "",
+        "sr_requested_mode": sr_manifest.get("requested_mode") or sr_strategy.get("mode") or "",
+        "sr_model": sr_manifest.get("sr_model") or sr_strategy.get("model") or "",
+        "sr_scale": sr_manifest.get("scale") or sr_strategy.get("scale") or "",
+        "sr_effective_scale": _scale_label(sr_manifest.get("effective_scale")),
+        "sr_status": sr_manifest.get("status") or "",
+        "sr_fallback": _is_fallback(sr_manifest),
+        "sr_error": sr_manifest.get("error") or "",
+        "sr_needs_download": (sr_manifest.get("model_preflight") or {}).get("needs_download"),
+        "sr_weights_exist": (sr_manifest.get("model_preflight") or {}).get("weights_exist"),
+        "sr_strategy_reason": sr_strategy.get("reason") or "",
+        "output_size": sr_manifest.get("output_size") or [],
+        "input_score": (input_quality.get("verdict") or {}).get("score"),
+        "sog_mb": score["sog_mb"],
+        "ply_mb": score["ply_mb"],
+        "point_count": score["point_count"],
+        "radius_p99": score["radius_p99"],
+        "best_psnr": training_summary.get("best_psnr"),
+        "last_loss": training_summary.get("last_loss"),
+        "train_sec": training_summary.get("elapsed_sec"),
+        "gaussians_final": training_summary.get("gaussians_final"),
+    }
+
+
+def _print_table(rows):
+    if not rows:
+        return
+    headers = [
+        "score", "mode", "req", "model", "scale", "eff_x", "fb", "psnr", "train_s",
+        "points", "sog_mb", "ply_mb", "output"
+    ]
+    widths = {h: len(h) for h in headers}
+    values = []
+    for row in rows:
+        item = {
+            "score": str(row["score"]),
+            "mode": str(row["sr_mode"]),
+            "req": str(row.get("sr_requested_mode") or "-"),
+            "model": str(row["sr_model"]),
+            "scale": str(row["sr_scale"]),
+            "eff_x": str(row.get("sr_effective_scale") or "-"),
+            "fb": "yes" if row.get("sr_fallback") else "-",
+            "psnr": _fmt_optional(row.get("best_psnr")),
+            "train_s": _fmt_optional(row.get("train_sec")),
+            "points": str(row["point_count"]),
+            "sog_mb": str(row["sog_mb"]),
+            "ply_mb": str(row["ply_mb"]),
+            "output": Path(row["output"]).name,
+        }
+        values.append(item)
+        for key, value in item.items():
+            widths[key] = max(widths[key], len(value))
+
+    print("  ".join(h.ljust(widths[h]) for h in headers))
+    print("  ".join("-" * widths[h] for h in headers))
+    for item in values:
+        print("  ".join(item[h].ljust(widths[h]) for h in headers))
+
+
+def _is_fallback(sr_manifest):
+    if not sr_manifest:
+        return False
+    requested = sr_manifest.get("requested_mode")
+    effective = sr_manifest.get("effective_mode")
+    status = sr_manifest.get("status") or ""
+    return (
+        bool(requested and effective and requested != effective)
+        or "fallback" in status
+        or "failed_copied_originals" in status
+    )
+
+
+def _analysis(rows):
+    if not rows:
+        return {}
+    ok_rows = [row for row in rows if row.get("ok")]
+    scored = ok_rows or rows
+    winner = max(
+        scored,
+        key=lambda row: (
+            row.get("score", 0),
+            row.get("best_psnr") if row.get("best_psnr") is not None else -1,
+            row.get("point_count", 0),
+            -float(row.get("train_sec") or 0),
+        ),
+    )
+    fallback_rows = [row for row in rows if row.get("sr_fallback")]
+    resize_rows = [row for row in rows if row.get("sr_mode") == "resize"]
+    notes = []
+    if fallback_rows:
+        notes.append(
+            f"{len(fallback_rows)} run(s) fell back; inspect sr_error/model_preflight before trusting learned SR."
+        )
+    if resize_rows:
+        best_resize = max(resize_rows, key=lambda row: row.get("point_count", 0))
+        off_like = [row for row in rows if row.get("sr_effective_scale") == "1"]
+        if off_like and best_resize.get("point_count", 0) < max(r.get("point_count", 0) for r in off_like):
+            notes.append("resize did not improve point count on this sweep; prefer off/auto unless visual review says otherwise.")
+    return {
+        "recommended_output": winner["output"],
+        "recommended_reason": (
+            "highest score with PSNR/point-count tie-breakers; still requires visual review"
+        ),
+        "fallback_count": len(fallback_rows),
+        "notes": notes,
+    }
+
+
+def _fmt_optional(value):
+    if value is None:
+        return "-"
+    if isinstance(value, float):
+        return f"{value:.2f}"
+    return str(value)
+
+
+def _scale_label(value):
+    if not value:
+        return ""
+    try:
+        if isinstance(value, (list, tuple)) and len(value) >= 2:
+            sx = float(value[0])
+            sy = float(value[1])
+            if abs(sx - sy) < 0.01:
+                return f"{sx:.2g}"
+            return f"{sx:.2g}x{sy:.2g}"
+        return f"{float(value):.2g}"
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("outputs", nargs="+", help="output folders from a sweep")
+    parser.add_argument("--work_root", default="workspace_video/sr_sweeps")
+    parser.add_argument("--report", default="")
+    parser.add_argument("--mobile_sog_mb", type=float, default=12.0)
+    parser.add_argument("--min_points", type=int, default=120_000)
+    args = parser.parse_args()
+
+    rows = [
+        _summarize(path, args.work_root, args.mobile_sog_mb, args.min_points)
+        for path in args.outputs
+    ]
+    rows.sort(key=lambda row: (row["score"], row["point_count"]), reverse=True)
+    report = {
+        "ok": all(row["ok"] for row in rows),
+        "analysis": _analysis(rows),
+        "results": rows,
+    }
+    if args.report:
+        report_path = Path(args.report)
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    _print_table(rows)
+    analysis = report["analysis"]
+    if analysis:
+        print(
+            "\nrecommended: "
+            f"{Path(analysis['recommended_output']).name} "
+            f"({analysis['recommended_reason']})"
+        )
+        for note in analysis.get("notes", []):
+            print(f"note: {note}")
+    print(json.dumps(report, indent=2))
+
+
+if __name__ == "__main__":
+    main()

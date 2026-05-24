@@ -6,6 +6,7 @@ Best for: images with mild blur, JPEG compression artifacts, or slight noise.
 """
 
 import numpy as np
+from pathlib import Path
 from typing import List
 
 from .base import BaseSRModel
@@ -22,10 +23,79 @@ class RealESRGANModel(BaseSRModel):
         super().__init__(scale=scale, device=device, **kwargs)
         self.model_type = model_type
         self._model = None
+        self._model_scale = 2 if scale == 2 else 4
 
     @property
     def name(self) -> str:
         return f"Real-ESRGAN ({self.model_type})"
+
+    def describe_weights(self) -> dict:
+        """Return weight-resolution metadata without loading the model."""
+        explicit = self.kwargs.get("model_path", None)
+        explicit_is_url = _is_url(explicit)
+        weight_name = self._weight_name()
+        release_tag = self._release_tag()
+        local_path = Path.home() / ".cache" / "realesrgan" / weight_name
+        package_path = Path(__file__).resolve().parents[2] / "weights" / weight_name
+        download_url = (
+            "https://github.com/xinntao/Real-ESRGAN/releases/download/"
+            f"{release_tag}/{weight_name}"
+        )
+
+        explicit_exists = None
+        explicit_missing = False
+        if explicit and not explicit_is_url:
+            explicit_path = Path(explicit).expanduser()
+            explicit_exists = explicit_path.exists()
+            explicit_missing = not explicit_exists
+
+        resolved = self._resolve_model_path()
+        needs_download = _is_url(resolved)
+        weights_exist = (
+            bool(explicit_exists)
+            or local_path.exists()
+            or package_path.exists()
+        )
+        return {
+            "ok": not explicit_missing,
+            "model": self.name,
+            "requested_scale": int(self.scale),
+            "model_scale": int(self._model_scale),
+            "weight_name": weight_name,
+            "explicit_model_path": explicit or "",
+            "explicit_is_url": bool(explicit_is_url),
+            "explicit_exists": explicit_exists,
+            "local_cache_path": str(local_path),
+            "local_cache_exists": local_path.exists(),
+            "package_path": str(package_path),
+            "package_exists": package_path.exists(),
+            "download_url": download_url,
+            "resolved_model_path": resolved,
+            "needs_download": bool(needs_download),
+            "weights_exist": bool(weights_exist),
+        }
+
+    def _weight_name(self) -> str:
+        return "RealESRGAN_x2plus.pth" if self._model_scale == 2 else "RealESRGAN_x4plus.pth"
+
+    def _release_tag(self) -> str:
+        return "v0.2.1" if self._model_scale == 2 else "v0.1.0"
+
+    def _resolve_model_path(self) -> str:
+        model_path = self.kwargs.get("model_path", None)
+        if model_path:
+            return str(model_path)
+        weight_name = self._weight_name()
+        local_path = Path.home() / ".cache" / "realesrgan" / weight_name
+        package_path = Path(__file__).resolve().parents[2] / "weights" / weight_name
+        if local_path.exists():
+            return str(local_path)
+        if package_path.exists():
+            return str(package_path)
+        return (
+            "https://github.com/xinntao/Real-ESRGAN/releases/download/"
+            f"{self._release_tag()}/{weight_name}"
+        )
 
     def load(self):
         import torch
@@ -40,38 +110,22 @@ class RealESRGANModel(BaseSRModel):
             # Anime models use a different RRDBNet config
             model = RRDBNet(
                 num_in_ch=3, num_out_ch=3, num_feat=64,
-                num_block=6, num_grow_ch=32, scale=self.scale
+                num_block=6, num_grow_ch=32, scale=self._model_scale
             )
         else:
             model = RRDBNet(
                 num_in_ch=3, num_out_ch=3, num_feat=64,
-                num_block=23, num_grow_ch=32, scale=self.scale
+                num_block=23, num_grow_ch=32, scale=self._model_scale
             )
 
-        # Use standard model URL, try multiple sources
-        model_url = self.kwargs.get("model_path", None)
-        if model_url is None:
-            # Try local weights directory first
-            import os as _os
-            local_path = _os.path.expanduser("~/.cache/realesrgan/RealESRGAN_x4plus.pth")
-            package_path = _os.path.join(
-                _os.path.dirname(_os.path.dirname(_os.path.dirname(__file__))),
-                "weights",
-                "RealESRGAN_x4plus.pth",
-            )
-            if _os.path.exists(local_path):
-                model_url = local_path
-            elif _os.path.exists(package_path):
-                model_url = package_path
-            else:
-                model_url = "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth"
+        model_url = self._resolve_model_path()
         self._model = RealESRGANer(
-            scale=self.scale,
+            scale=self._model_scale,
             model_path=model_url,
             model=model,
-            tile=0,  # No tiling by default; set tile>0 if OOM
-            tile_pad=10,
-            pre_pad=0,
+            tile=int(self.kwargs.get("tile", 0)),
+            tile_pad=int(self.kwargs.get("tile_pad", 10)),
+            pre_pad=int(self.kwargs.get("pre_pad", 0)),
             half=True if self.device == "cuda" else False,
             device=self.device,
         )
@@ -93,3 +147,7 @@ class RealESRGANModel(BaseSRModel):
             self._model = None
             import torch
             torch.cuda.empty_cache()
+
+
+def _is_url(value) -> bool:
+    return isinstance(value, str) and value.startswith(("http://", "https://"))

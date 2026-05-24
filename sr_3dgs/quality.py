@@ -197,7 +197,7 @@ def write_delivery_report(delivery_dir, scene_name, results, diagnostics):
         files["input_manifest"] = _copy(path, delivery / "reports" / "input_manifest.json")
 
     reports_dir = delivery / "reports"
-    for key in ("input_quality_frames", "input_quality_object"):
+    for key in ("sr_manifest", "training_summary", "input_quality_frames", "input_quality_object"):
         _copy_report_pair(results, files, key, reports_dir)
 
     (delivery / "reports").mkdir(parents=True, exist_ok=True)

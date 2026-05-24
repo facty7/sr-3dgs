@@ -4,6 +4,7 @@
 # Quality: Best multi-view consistency due to temporal SR
 
 sr_model: basicvsr++
+sr_mode: model
 sr_scale: 4
 sr_device: cuda
 sr_kwargs:

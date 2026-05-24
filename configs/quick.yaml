@@ -4,6 +4,7 @@
 # Quality: Good for most commercial jobs
 
 sr_model: real-esrgan
+sr_mode: model
 sr_scale: 4
 sr_device: cuda
 sr_kwargs:

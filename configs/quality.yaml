@@ -4,6 +4,7 @@
 # Quality: Highest photorealism, needs careful validation
 
 sr_model: supir
+sr_mode: model
 sr_scale: 4
 sr_device: cuda
 sr_kwargs:

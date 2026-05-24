@@ -6,7 +6,10 @@ Usage:
     python run_pipeline.py --input_dir /path/to/images
 
     # With specific SR model
-    python run_pipeline.py --input_dir /path/to/images --sr_model real-esrgan --sr_scale 4
+    python run_pipeline.py --input_dir /path/to/images --sr_mode model --sr_model real-esrgan --sr_scale 4
+
+    # Disable learned super-resolution
+    python run_pipeline.py --input_dir /path/to/images --sr_mode off --sr_scale 1
 
     # Only run steps 1-3 (COLMAP + SR + alignment)
     python run_pipeline.py --input_dir /path/to/images --start 1 --end 3
@@ -55,20 +58,29 @@ def build_parser():
     # Step control
     p.add_argument("--start", type=int, default=1,
                    help="Start from step (1-5)")
-    p.add_argument("--end", type=int, default=6,
-                   help="End at step (1-5)")
+    p.add_argument("--end", "--end_step", dest="end", type=int, default=6,
+                   help="End at step (1-6)")
     p.add_argument("--skip_existing", type=int, default=1,
                    help="Skip steps with existing output (1=yes, 0=no)")
 
     # SR config
+    p.add_argument("--sr_mode", type=str, default="auto",
+                   choices=["auto", "off", "resize", "model"],
+                   help="SR strategy: auto selects model for scale>1 and copy for scale=1")
     p.add_argument("--sr_model", type=str, default="real-esrgan",
-                   choices=["real-esrgan", "dat", "supir", "basicvsr++"],
+                   choices=["real-esrgan", "dat", "supir", "basicvsr++", "resize", "off"],
                    help="Super-resolution model")
     p.add_argument("--sr_scale", type=int, default=4,
-                   choices=[2, 4, 8],
+                   choices=[1, 2, 4, 8],
                    help="Super-resolution scale factor")
     p.add_argument("--sr_device", type=str, default="cuda",
                    help="Device for SR inference")
+    p.add_argument("--sr_model_load_timeout", type=int, default=180,
+                   help="Seconds to wait for learned SR before fallback; <=0 disables")
+    p.add_argument("--sr_frame_timeout", type=int, default=300,
+                   help="Seconds without SR image progress before fallback; <=0 disables")
+    p.add_argument("--sr_strict_model", action="store_true",
+                   help="Fail instead of falling back when --sr_mode model cannot run")
 
     # COLMAP config
     p.add_argument("--colmap_path", type=str, default="colmap",
@@ -93,9 +105,6 @@ def build_parser():
                    help="Custom title for the viewer HTML page")
     p.add_argument("--no_showcase", type=int, default=0,
                    help="Skip showcase video rendering (1=yes, 0=no)")
-    p.add_argument("--end_step", type=int, default=6,
-                   help="End at step (6=full with viewer, 5=clean PLY only)")
-
     # Batch
     p.add_argument("--batch_list", type=str, default="",
                    help="Text file with list of input directories (one per line)")
@@ -117,9 +126,13 @@ def main():
     cfg = PipelineConfig(
         input_dir=args.input_dir,
         work_dir=args.work_dir,
+        sr_mode=args.sr_mode,
         sr_model=args.sr_model,
         sr_scale=args.sr_scale,
         sr_device=args.sr_device,
+        sr_model_load_timeout_s=args.sr_model_load_timeout,
+        sr_frame_timeout_s=args.sr_frame_timeout,
+        sr_strict_model=args.sr_strict_model,
         colmap_path=args.colmap_path,
         colmap_camera_model=args.colmap_camera,
         colmap_gpu=args.colmap_gpu,
@@ -146,7 +159,7 @@ def main():
         parser.error("--input_dir is required (or use --batch_list)")
 
     pipeline = Pipeline(cfg)
-    pipeline.run(start_step=args.start, end_step=args.end_step if hasattr(args, "end_step") else args.end)
+    pipeline.run(start_step=args.start, end_step=args.end)
     pipeline.export_config()
 
 
@@ -174,7 +187,7 @@ def run_batch(batch_file: str, base_cfg: PipelineConfig, args):
 
         try:
             pipeline = Pipeline(cfg)
-            pipeline.run(start_step=args.start, end_step=args.end_step if hasattr(args, "end_step") else args.end)
+            pipeline.run(start_step=args.start, end_step=args.end)
         except Exception as e:
             print(f"[BATCH ERROR] {scene_path}: {e}")
             failed.append((scene_path, str(e)))

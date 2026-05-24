@@ -1,7 +1,7 @@
 # Optional quality-mode dependencies.
 #
-# The default pipeline does not require these packages. Install them when you
-# want stronger object masks:
+# The default pipeline does not require these packages. Install them for
+# stronger object masks:
 #
 #   pip install -r requirements-optional.txt
 

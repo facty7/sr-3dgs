@@ -1,8 +1,7 @@
 # Cloud GPU Notes
 
-The pipeline can run on local Linux/WSL machines or cloud GPU instances. Choose
-the environment based on scene size, GPU memory, and how much setup work you
-want to manage.
+The pipeline can run on local Linux/WSL machines or cloud GPU instances. The
+best environment depends on scene size, GPU memory, and setup complexity.
 
 ## Common Options
 

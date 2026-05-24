@@ -284,6 +284,20 @@ def check_dependencies() -> dict:
         status["ok"] = False
         status["missing"].append("gsplat (pip install gsplat)")
 
+    # ninja is required by torch/gsplat when CUDA extensions are JIT-compiled.
+    import shutil
+    ninja_ok = shutil.which("ninja") is not None
+    if not ninja_ok:
+        try:
+            import ninja  # noqa: F401
+            ninja_ok = shutil.which("ninja") is not None
+        except ImportError:
+            pass
+    status["ninja"] = "OK" if ninja_ok else "MISSING"
+    if not ninja_ok:
+        status["ok"] = False
+        status["missing"].append("ninja (pip install ninja)")
+
     # sklearn
     try:
         import sklearn
@@ -314,7 +328,6 @@ def check_dependencies() -> dict:
         status["warnings"].append("imageio not found — video export disabled")
 
     # System: colmap (check binary or pycolmap)
-    import shutil
     colmap_ok = shutil.which("colmap") is not None
     if not colmap_ok:
         try:
@@ -352,7 +365,7 @@ def print_dep_check(status: dict):
     print(f"  Dependency Check")
     print(f"{'='*50}")
 
-    core = ["numpy", "torch", "pillow", "opencv", "gsplat", "sklearn", "colmap"]
+    core = ["numpy", "torch", "pillow", "opencv", "gsplat", "ninja", "sklearn", "colmap"]
     for k in core:
         v = status.get(k, "MISSING")
         mark = "+" if v and v != "MISSING" else "X"

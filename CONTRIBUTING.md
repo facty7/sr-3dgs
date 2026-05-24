@@ -11,7 +11,7 @@ Run the CI-safe checks:
 PYTHONDONTWRITEBYTECODE=1 python scripts/ci_check.py
 ```
 
-If you have local demo outputs:
+For local demo outputs:
 
 ```bash
 PYTHONDONTWRITEBYTECODE=1 python scripts/release_readiness.py --include_output

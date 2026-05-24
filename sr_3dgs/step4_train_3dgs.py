@@ -1,6 +1,6 @@
 """Step 4: Train 3DGS using gsplat strategies."""
 
-import os, math, time, struct
+import os, math, time, struct, json
 from pathlib import Path
 from typing import Dict
 from dataclasses import dataclass
@@ -269,6 +269,9 @@ class SR3DGSTrainer:
         t0 = time.time()
         best_psnr = 0.0
         running_psnr = 0.0
+        last_loss = None
+        last_psnr = None
+        last_step = 0
 
         for step in range(1, cfg.max_steps + 1):
             # SH degree annealing
@@ -384,6 +387,8 @@ class SR3DGSTrainer:
             if large.any():
                 loss += 0.1 * (max_per_gs[large] ** 2).mean()
 
+            last_loss = float(loss.detach().item())
+            last_step = step
             loss.backward()
 
             if lr_scale != 1.0:
@@ -416,6 +421,7 @@ class SR3DGSTrainer:
                 if step == 1: running_psnr = psnr
                 else: running_psnr = 0.9 * running_psnr + 0.1 * psnr
                 best_psnr = max(best_psnr, psnr)
+                last_psnr = psnr
                 curr_scales = torch.exp(gs["scales"]).detach()
                 max_sc = curr_scales.max(dim=-1).values
                 cnt = len(gs["means"])
@@ -434,7 +440,48 @@ class SR3DGSTrainer:
         print(f"[Step4] Done in {elapsed:.0f}s ({elapsed/60:.1f}m). Best PSNR: {best_psnr:.2f}")
         print(f"[Step4] Gaussians: {N_initial} -> {len(gs['means'])}")
         self._save_checkpoint(gs, cfg.max_steps)
-        self._export_ply(gs, cfg.max_steps)
+        ply_path = self._export_ply(gs, cfg.max_steps)
+        self._write_training_summary(
+            elapsed=elapsed,
+            best_psnr=best_psnr,
+            running_psnr=running_psnr,
+            last_psnr=last_psnr,
+            last_loss=last_loss,
+            last_step=last_step,
+            gaussians_initial=N_initial,
+            gaussians_final=len(gs["means"]),
+            strategy_name=strategy_name,
+            scene_radius=scene_radius_centered,
+            scene_extent=scene_extent_centered,
+            ply_path=ply_path,
+        )
+
+    def _write_training_summary(self, **kwargs):
+        cfg = self.config
+        path = Path(cfg.result_dir) / "training_summary.json"
+        summary = {
+            "ok": True,
+            "steps_requested": int(cfg.max_steps),
+            "steps_completed": int(kwargs["last_step"]),
+            "elapsed_sec": round(float(kwargs["elapsed"]), 3),
+            "best_psnr": round(float(kwargs["best_psnr"]), 4),
+            "running_psnr": round(float(kwargs["running_psnr"]), 4),
+            "last_psnr": _round_optional(kwargs["last_psnr"], 4),
+            "last_loss": _round_optional(kwargs["last_loss"], 6),
+            "gaussians_initial": int(kwargs["gaussians_initial"]),
+            "gaussians_final": int(kwargs["gaussians_final"]),
+            "strategy": kwargs["strategy_name"],
+            "scene_radius": round(float(kwargs["scene_radius"]), 6),
+            "scene_extent": round(float(kwargs["scene_extent"]), 6),
+            "camera_model": cfg.camera_model,
+            "data_factor": int(cfg.data_factor),
+            "max_render_dim": int(cfg.max_render_dim),
+            "sh_degree": int(cfg.sh_degree),
+            "device": str(self.device),
+            "ply": str(kwargs["ply_path"]),
+        }
+        path.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+        print(f"[Step4] Wrote training summary: {path}")
 
     def _save_checkpoint(self, gs, step):
         ckpt_path = Path(self.config.result_dir) / f"checkpoint_step{step}.pt"
@@ -477,6 +524,7 @@ class SR3DGSTrainer:
                 f.write(struct.pack("<fff", *scales[i]))
                 f.write(struct.pack("<ffff", *quats[i]))
         print(f"  PLY: {ply_path} ({N} Gaussians)")
+        return ply_path
 
     def _eval(self, gs, transforms, step, sh_degree):
         from PIL import Image
@@ -522,3 +570,9 @@ class SR3DGSTrainer:
                 )
                 rgb = (np.clip(render_col[0].cpu().numpy(), 0, 1) * 255).astype(np.uint8)
                 Image.fromarray(rgb).save(render_dir / f"step{step}_view{i}.png")
+
+
+def _round_optional(value, digits):
+    if value is None:
+        return None
+    return round(float(value), digits)

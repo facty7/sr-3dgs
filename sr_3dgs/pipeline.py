@@ -40,10 +40,14 @@ class PipelineConfig:
     colmap_gpu: int = 0
 
     # Step 2: Super Resolution
+    sr_mode: str = "auto"                       # auto | off | resize | model
     sr_model: str = "real-esrgan"                # real-esrgan | dat | supir | basicvsr++
     sr_scale: int = 4
     sr_device: str = "cuda"
     sr_kwargs: Dict[str, Any] = field(default_factory=dict)
+    sr_model_load_timeout_s: int = 180
+    sr_frame_timeout_s: int = 300
+    sr_strict_model: bool = False
 
     # Step 3: Intrinsic alignment (uses sr_scale automatically)
 
@@ -137,7 +141,7 @@ class Pipeline:
         print("=" * 60)
         print("  SR + 3DGS Pipeline")
         print(f"  Input: {cfg.input_dir}")
-        print(f"  SR Model: {cfg.sr_model} (x{cfg.sr_scale})")
+        print(f"  SR: {cfg.sr_mode} / {cfg.sr_model} (x{cfg.sr_scale})")
         print(f"  Work Dir: {cfg.work_dir}")
         print("=" * 60)
 
@@ -195,10 +199,16 @@ class Pipeline:
             scale=cfg.sr_scale,
             device=cfg.sr_device,
             model_kwargs=cfg.sr_kwargs,
+            mode=cfg.sr_mode,
+            model_load_timeout_s=cfg.sr_model_load_timeout_s,
+            frame_timeout_s=cfg.sr_frame_timeout_s,
+            strict_model=cfg.sr_strict_model,
         )
         self._step_results["sr_images"] = processor.run(
             force=not cfg.skip_existing
         )
+        if processor.manifest_path.exists():
+            self._step_results["sr_manifest"] = str(processor.manifest_path)
         processor.cleanup()
 
     def run_step3(self):
@@ -241,6 +251,9 @@ class Pipeline:
         ckpts = sorted(self.train_dir.glob("checkpoint_step*.pt"), key=lambda p: int(p.stem.split("step")[-1]))
         if ckpts:
             self._step_results["checkpoint"] = str(ckpts[-1])
+        summary = self.train_dir / "training_summary.json"
+        if summary.exists():
+            self._step_results["training_summary"] = str(summary)
 
     def run_step5(self):
         """Step 5: Cleanup floaters and export clean PLY."""
@@ -351,6 +364,10 @@ class Pipeline:
         meta = self.aligned_dir / "metadata.json"
         if meta.exists():
             deliverables.append(f"    [META] {meta.relative_to(self.work_dir)}")
+
+        sr_meta = self.sr_dir / "sr_manifest.json"
+        if sr_meta.exists():
+            deliverables.append(f"    [SR] {sr_meta.relative_to(self.work_dir)}")
 
         for key, label in [("viewer", "VIEWER"), ("splat", "SPLAT"), ("showcase", "VIDEO")]:
             path = self._step_results.get(key)
