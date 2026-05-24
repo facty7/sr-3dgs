@@ -16,8 +16,6 @@ from pathlib import Path
 from typing import Optional
 
 import numpy as np
-import torch
-import torch.nn.functional as F
 
 
 def quat_to_uint8(quat: np.ndarray) -> np.ndarray:
@@ -88,6 +86,8 @@ class SplatExporter:
             opacity_threshold: Filter out low-opacity Gaussians
             max_gaussians: Cap the number of Gaussians (for mobile optimization)
         """
+        import torch
+
         ckpt = torch.load(self.checkpoint_path, map_location="cpu")
         splats = ckpt["splats"]
 

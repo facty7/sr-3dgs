@@ -13,7 +13,6 @@ from pathlib import Path
 from typing import Optional, List
 
 import numpy as np
-import torch
 
 from .utils import ensure_dir
 
@@ -27,6 +26,8 @@ def export_to_ply(checkpoint_path: str, output_path: str,
         output_path: Output PLY file path
         opacity_threshold: Minimum opacity to include (0 = export all)
     """
+    import torch
+
     ckpt = torch.load(checkpoint_path, map_location="cpu")
     splats = ckpt["splats"]
 
@@ -104,6 +105,7 @@ def render_trajectory_video(checkpoint_path: str, output_path: str,
     except ImportError:
         raise ImportError("gsplat required for rendering. pip install gsplat")
 
+    import torch
     import imageio
 
     ckpt = torch.load(checkpoint_path, map_location="cuda" if torch.cuda.is_available() else "cpu")

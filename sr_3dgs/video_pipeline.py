@@ -20,8 +20,6 @@ from dataclasses import dataclass, field
 from typing import Optional, Dict, Any
 
 from .video_extractor import VideoFrameExtractor
-from .pipeline import Pipeline, PipelineConfig
-from .splat_export import SplatExporter
 from .web_viewer import generate_viewer
 from .utils import ensure_dir, check_dependencies, print_dep_check, get_gpu_memory
 from .input_analyzer import analyze_video
@@ -335,6 +333,8 @@ class VideoPipeline:
         print(f"  Phase 2: SR + 3DGS Reconstruction")
         print(f"{'─'*40}")
 
+        from .pipeline import Pipeline, PipelineConfig
+
         pipeline_cfg = PipelineConfig(
             input_dir=str(self.frames_dir),
             work_dir=str(self.work_dir),
@@ -495,6 +495,8 @@ class VideoPipeline:
         # Try checkpoint first, then PLY
         ckpt = results.get("checkpoint", "")
         if ckpt and Path(ckpt).exists():
+            from .splat_export import SplatExporter
+
             exporter = SplatExporter(ckpt)
             exporter.export(
                 str(self.splat_output),
@@ -513,6 +515,8 @@ class VideoPipeline:
             elif ply_candidates:
                 src_ply = ply_candidates[-1]
             elif ckpt_candidates:
+                from .splat_export import SplatExporter
+
                 exporter = SplatExporter(str(ckpt_candidates[-1]))
                 exporter.export(
                     str(self.splat_output),

@@ -21,8 +21,6 @@ from typing import Optional, Dict, Any
 from .step1_colmap import COLMAPExtractor
 from .step2_super_resolution import SuperResolutionProcessor
 from .step3_intrinsic_align import IntrinsicAligner
-from .step4_train_3dgs import SR3DGSTrainer, SRTrainConfig
-from .step5_cleanup import CleanupProcessor
 from .utils import ensure_dir, get_gpu_memory, vram_safe_config, check_dependencies, print_dep_check
 
 
@@ -237,6 +235,8 @@ class Pipeline:
 
     def run_step4(self):
         """Step 4: Train 3DGS with SR-optimized strategy."""
+        from .step4_train_3dgs import SR3DGSTrainer, SRTrainConfig
+
         cfg = self.config
         train_cfg = SRTrainConfig(
             data_dir=str(self.aligned_dir),
@@ -265,6 +265,8 @@ class Pipeline:
 
     def run_step5(self):
         """Step 5: Cleanup floaters and export clean PLY."""
+        from .step5_cleanup import CleanupProcessor
+
         cfg = self.config
         ckpt = self._step_results.get("checkpoint")
         if not ckpt:
