@@ -23,6 +23,34 @@ def _read_json(path):
         return {}
 
 
+def _outputs_from_plan(plan_path):
+    plan_path = Path(plan_path)
+    plan = _read_json(plan_path)
+    final_root = plan.get("final_output_root")
+    outputs = []
+    skipped = []
+    for run in plan.get("runs") or []:
+        output_dir = run.get("output_dir")
+        if not output_dir and final_root and run.get("output_name"):
+            output_dir = str(Path(final_root) / run["output_name"])
+        if not output_dir:
+            skipped.append({
+                "output_name": run.get("output_name", ""),
+                "reason": "missing output_dir",
+            })
+            continue
+        output_path = Path(output_dir)
+        if output_path.exists():
+            outputs.append(str(output_path))
+        else:
+            skipped.append({
+                "output_name": run.get("output_name", output_path.name),
+                "output_dir": str(output_path),
+                "reason": "output directory not found",
+            })
+    return plan, outputs, skipped
+
+
 def _workspace_for_output(output_dir, work_root):
     output_dir = Path(output_dir)
     if (output_dir / "sr_images" / "sr_manifest.json").exists():
@@ -369,16 +397,32 @@ def _scale_label(value):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("outputs", nargs="+", help="output folders from a sweep")
-    parser.add_argument("--work_root", default="workspace_video/sr_sweeps")
+    parser.add_argument("outputs", nargs="*", help="output folders from a sweep")
+    parser.add_argument("--plan", default="",
+                        help="SR sweep plan JSON from scripts/plan_sr_sweep.py")
+    parser.add_argument("--work_root", default="")
     parser.add_argument("--report", default="")
     parser.add_argument("--mobile_sog_mb", type=float, default=12.0)
     parser.add_argument("--min_points", type=int, default=120_000)
     args = parser.parse_args()
 
+    plan = {}
+    skipped_outputs = []
+    outputs = list(args.outputs)
+    work_root = args.work_root
+    if args.plan:
+        plan, plan_outputs, skipped_outputs = _outputs_from_plan(args.plan)
+        outputs.extend(plan_outputs)
+        if not work_root:
+            work_root = plan.get("work_root", "")
+    if not work_root:
+        work_root = "workspace_video/sr_sweeps"
+    if not outputs:
+        parser.error("provide output folders or --plan with completed output directories")
+
     rows = [
-        _summarize(path, args.work_root, args.mobile_sog_mb, args.min_points)
-        for path in args.outputs
+        _summarize(path, work_root, args.mobile_sog_mb, args.min_points)
+        for path in outputs
     ]
     rows.sort(
         key=lambda row: (
@@ -392,6 +436,8 @@ def main():
     )
     report = {
         "ok": all(row["ok"] for row in rows),
+        "plan": str(Path(args.plan)) if args.plan else "",
+        "skipped_outputs": skipped_outputs,
         "analysis": _analysis(rows),
         "results": rows,
     }
@@ -409,6 +455,12 @@ def main():
         )
         for note in analysis.get("notes", []):
             print(f"note: {note}")
+    for item in skipped_outputs:
+        print(
+            "skipped: "
+            f"{item.get('output_name') or item.get('output_dir')} "
+            f"({item.get('reason')})"
+        )
     print(json.dumps(report, indent=2))
 
 

@@ -127,6 +127,10 @@ python scripts/plan_sr_sweep.py \
   --no_showcase
 ```
 
+The plan records each run command, its expected workspace/output folders, and
+a ready-to-run summary command. Add `--run` only for launching all planned
+runs.
+
 For ordinary phone captures, include extraction coverage variants in the same
 plan:
 
@@ -145,9 +149,16 @@ frame-extraction variants. Add custom variants with
 Values up to `1.0` are treated as timeline span targets; prefix low frame rates
 with `fps`, for example `name:80:240:fps0.5:span0.90:adaptive`.
 
-Add `--run` only for launching all planned runs.
-
 After the runs finish, summarize the delivery metrics and SR metadata:
+
+```bash
+python scripts/summarize_sr_sweep.py \
+  --plan workspace_video/sr_sweeps/sr_sweep_plan.json \
+  --report workspace_video/sr_sweeps/sr_sweep_summary.json
+```
+
+The plan-based summary automatically skips runs whose output folder does not
+exist yet. You can also summarize explicit output folders:
 
 ```bash
 python scripts/summarize_sr_sweep.py \

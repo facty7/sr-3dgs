@@ -385,6 +385,53 @@ def main():
         assert data5["analysis"]["low_colmap_count"] == 1, data5
         assert data5["analysis"]["recommended_output"].endswith("phone_strong_cam_x1"), data5
 
+        plan_report = root / "summary_from_plan.json"
+        sweep_plan = root / "sr_sweep_plan.json"
+        missing_output = out_root / "phone_missing_x1"
+        sweep_plan.write_text(
+            json.dumps({
+                "work_root": str(work_root),
+                "final_output_root": str(out_root),
+                "runs": [
+                    {
+                        "output_name": weak_cam.name,
+                        "output_dir": str(weak_cam),
+                    },
+                    {
+                        "output_name": strong_cam.name,
+                        "output_dir": str(strong_cam),
+                    },
+                    {
+                        "output_name": missing_output.name,
+                        "output_dir": str(missing_output),
+                    },
+                ],
+            }),
+            encoding="utf-8",
+        )
+        proc6 = subprocess.run(
+            [
+                sys.executable,
+                "scripts/summarize_sr_sweep.py",
+                "--plan",
+                str(sweep_plan),
+                "--report",
+                str(plan_report),
+                "--min_points",
+                "1",
+            ],
+            cwd=str(ROOT),
+            check=True,
+            text=True,
+            capture_output=True,
+        )
+        assert "skipped: phone_missing_x1" in proc6.stdout, proc6.stdout
+        data6 = json.loads(plan_report.read_text(encoding="utf-8"))
+        assert data6["plan"] == str(sweep_plan), data6
+        assert len(data6["results"]) == 2, data6
+        assert len(data6["skipped_outputs"]) == 1, data6
+        assert data6["analysis"]["recommended_output"].endswith("phone_strong_cam_x1"), data6
+
 
 if __name__ == "__main__":
     main()

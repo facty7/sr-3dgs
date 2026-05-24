@@ -32,6 +32,10 @@ def main():
         )
         data = json.loads(plan.read_text(encoding="utf-8"))
         assert len(data["runs"]) == 4, data
+        assert data["work_root"].endswith("sr_sweeps"), data
+        assert data["final_output_root"].endswith("sr_sweeps"), data
+        assert data["summary_command"][1] == "scripts/summarize_sr_sweep.py", data
+        assert "--plan" in data["summary_command"], data
         modes = [run["strategy"]["mode"] for run in data["runs"]]
         assert modes == ["off", "resize", "auto", "model"], modes
         for run in data["runs"]:
@@ -39,6 +43,8 @@ def main():
             assert "--sr_mode" in cmd, cmd
             assert "--sr_scale" in cmd, cmd
             assert "--run" not in cmd, cmd
+            assert run["workspace_dir"].endswith(run["output_name"]), run
+            assert run["output_dir"].endswith(run["output_name"]), run
 
         phone_plan = Path(tmp) / "phone_plan.json"
         subprocess.run(
@@ -67,6 +73,7 @@ def main():
         )
         phone_data = json.loads(phone_plan.read_text(encoding="utf-8"))
         assert phone_data["phone_coverage_sweep"] is True, phone_data
+        assert phone_data["summary_report"].endswith("sr_sweep_summary.json"), phone_data
         assert len(phone_data["runs"]) == 8, phone_data
         variants = [run["extraction_variant"].get("name") for run in phone_data["runs"]]
         assert variants.count("cover64") == 2, variants

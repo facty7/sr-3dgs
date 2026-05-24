@@ -157,6 +157,17 @@ def _build_command(args, strategy, extraction_variant=None):
     return output_name, cmd
 
 
+def _summary_command(plan_path, report_path):
+    return [
+        sys.executable,
+        "scripts/summarize_sr_sweep.py",
+        "--plan",
+        str(plan_path),
+        "--report",
+        str(report_path),
+    ]
+
+
 def _default_extraction_variants():
     return [
         {"name": "cover64", "min_frames": 64, "max_frames": 200, "fps": None, "min_span": 0.85, "adaptive": True},
@@ -199,6 +210,11 @@ def main():
         help="Cross SR strategies with cover64, cover96, and strict64 extraction variants.",
     )
     parser.add_argument("--plan", default="")
+    parser.add_argument(
+        "--summary_report",
+        default="",
+        help="Summary JSON path written by the generated summarize command.",
+    )
     parser.add_argument("--run", action="store_true")
     parser.add_argument("extra_args", nargs=argparse.REMAINDER)
     args = parser.parse_args()
@@ -215,10 +231,21 @@ def main():
     if not extraction_variants:
         extraction_variants = [None]
 
+    plan_path = Path(args.plan) if args.plan else Path(args.work_dir) / "sr_sweep_plan.json"
+    report_path = (
+        Path(args.summary_report)
+        if args.summary_report
+        else Path(args.work_dir) / "sr_sweep_summary.json"
+    )
+
     plan = {
         "video": args.video,
         "preset": args.preset,
+        "work_root": args.work_dir,
+        "final_output_root": args.final_output_dir,
         "phone_coverage_sweep": bool(args.phone_coverage_sweep),
+        "summary_report": str(report_path),
+        "summary_command": _summary_command(plan_path, report_path),
         "runs": [],
     }
     for extraction_variant in extraction_variants:
@@ -226,16 +253,19 @@ def main():
             output_name, cmd = _build_command(args, strategy, extraction_variant)
             plan["runs"].append({
                 "output_name": output_name,
+                "workspace_dir": str(Path(args.work_dir) / output_name),
+                "output_dir": str(Path(args.final_output_dir) / output_name),
                 "strategy": strategy,
                 "extraction_variant": extraction_variant or {},
                 "command": cmd,
             })
 
-    plan_path = Path(args.plan) if args.plan else Path(args.work_dir) / "sr_sweep_plan.json"
     plan_path.parent.mkdir(parents=True, exist_ok=True)
     plan_path.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
 
     print(f"Wrote plan: {plan_path}")
+    print("\nSummary command:")
+    print(" ".join(plan["summary_command"]))
     for run in plan["runs"]:
         print("\n" + " ".join(run["command"]))
 
