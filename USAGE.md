@@ -53,12 +53,15 @@ near-duplicate frames vary across the clip.
 
 ```bash
 python scripts/run_video_pipeline.py --video input_videos/object.mp4 \
-  --preset standard --extract_min_frames 64
+  --preset standard --extract_min_frames 64 --extract_min_span 0.85
 ```
 
 Use `--no_adaptive_extract` for strict ablation runs. Each run records the
 selected extraction pass in
-`workspace_video/<scene>/frames/extraction_manifest.json`.
+`workspace_video/<scene>/frames/extraction_manifest.json`. `extract_min_span`
+is the required selected-frame coverage across the source timeline. This helps
+ordinary turntable-style phone videos avoid runs where enough frames survived
+but they came from only part of the orbit.
 
 ## Super-Resolution Modes
 
@@ -119,7 +122,9 @@ python scripts/plan_sr_sweep.py \
 
 This crosses the SR strategies with `cover64`, `cover96`, and `strict64`
 frame-extraction variants. Add custom variants with
-`--extract_variant name:min_frames:max_frames[:fps][:adaptive|strict]`.
+`--extract_variant name:min_frames:max_frames[:fps][:span][:adaptive|strict]`.
+Values up to `1.0` are treated as timeline span targets; prefix low frame rates
+with `fps`, for example `name:80:240:fps0.5:span0.90:adaptive`.
 
 Add `--run` only for launching all planned runs.
 

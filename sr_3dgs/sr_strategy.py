@@ -67,6 +67,7 @@ def recommend_sr_strategy(
         extraction.get("min_frames"),
     )
     temporal_coverage = _selected_temporal_coverage(extraction)
+    temporal_target = _temporal_target(extraction)
     selected_pass = extraction.get("selected_pass")
 
     preferred_scale = int(preferred_scale or 2)
@@ -107,12 +108,12 @@ def recommend_sr_strategy(
     if (
         (frame_count is not None and frame_count < 48)
         or (coverage_ratio is not None and coverage_ratio < 1.0)
-        or (temporal_coverage is not None and temporal_coverage < 0.80)
+        or (temporal_coverage is not None and temporal_coverage < temporal_target)
     ):
         reason = "too few views; prioritize capture coverage over SR"
         if coverage_ratio is not None and coverage_ratio < 1.0:
             reason = "extraction missed its frame coverage target; prioritize capture coverage over SR"
-        elif temporal_coverage is not None and temporal_coverage < 0.80:
+        elif temporal_coverage is not None and temporal_coverage < temporal_target:
             reason = "selected frames cover only part of the video; prioritize full-turn coverage over SR"
         return SRStrategy(
             mode="off",
@@ -198,6 +199,13 @@ def _selected_temporal_coverage(extraction: Dict[str, Any]) -> Optional[float]:
             except (TypeError, ValueError):
                 return None
     return None
+
+
+def _temporal_target(extraction: Dict[str, Any]) -> float:
+    try:
+        return float(extraction.get("min_span"))
+    except (TypeError, ValueError):
+        return 0.80
 
 
 def write_strategy(path: str | Path, strategy: SRStrategy):

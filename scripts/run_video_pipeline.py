@@ -46,6 +46,7 @@ PRESETS = {
         "extract_min_frame_diff": 0.05,
         "extract_max_frames": 30,
         "extract_min_frames": 20,
+        "extract_min_span": 0.70,
         "sr_mode": "off",
         "sr_model": "real-esrgan",
         "sr_scale": 1,
@@ -61,6 +62,7 @@ PRESETS = {
         "extract_min_frame_diff": 0.03,
         "extract_max_frames": 100,
         "extract_min_frames": 48,
+        "extract_min_span": 0.80,
         "sr_mode": "off",
         "sr_model": "real-esrgan",
         "sr_scale": 1,
@@ -76,6 +78,7 @@ PRESETS = {
         "extract_min_frame_diff": 0.02,
         "extract_max_frames": 200,
         "extract_min_frames": 64,
+        "extract_min_span": 0.85,
         "sr_mode": "off",
         "sr_model": "real-esrgan",
         "sr_scale": 1,
@@ -91,6 +94,7 @@ PRESETS = {
         "extract_min_frame_diff": 0.01,
         "extract_max_frames": 300,
         "extract_min_frames": 80,
+        "extract_min_span": 0.90,
         "sr_mode": "model",
         "sr_model": "real-esrgan",
         "sr_scale": 2,
@@ -106,6 +110,7 @@ PRESETS = {
         "extract_min_frame_diff": 0.02,
         "extract_max_frames": 250,
         "extract_min_frames": 80,
+        "extract_min_span": 0.85,
         "sr_mode": "model",
         "sr_model": "supir",
         "sr_scale": 4,
@@ -125,6 +130,7 @@ PRESETS = {
         "extract_min_frame_diff": 0.015,
         "extract_max_frames": 350,
         "extract_min_frames": 90,
+        "extract_min_span": 0.90,
         "sr_mode": "model",
         "sr_model": "real-esrgan",
         "sr_scale": 2,
@@ -161,6 +167,8 @@ def main():
     parser.add_argument("--extract_max_frames", type=int, default=None)
     parser.add_argument("--extract_min_frames", type=int, default=None,
                         help="Desired kept-frame coverage before adaptive extraction relaxes filters")
+    parser.add_argument("--extract_min_span", type=float, default=None,
+                        help="Desired selected-frame timeline coverage before accepting an extraction pass")
     parser.add_argument("--no_adaptive_extract", action="store_true",
                         help="Disable adaptive relaxation of blur/diversity thresholds")
     parser.add_argument("--start_time", type=float, default=None,
@@ -268,6 +276,11 @@ def run_single(args):
         extract_min_frame_diff=preset.get("extract_min_frame_diff", 0.02),
         extract_max_frames=args.extract_max_frames or preset.get("extract_max_frames", 200),
         extract_min_frames=args.extract_min_frames or preset.get("extract_min_frames", 48),
+        extract_min_span=(
+            args.extract_min_span
+            if args.extract_min_span is not None
+            else preset.get("extract_min_span", 0.80)
+        ),
         extract_adaptive=not args.no_adaptive_extract,
         equirect_face_size=args.equirect_face_size,
         equirect_faces=tuple(v.strip() for v in args.equirect_faces.split(",") if v.strip()),

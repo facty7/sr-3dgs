@@ -61,6 +61,7 @@ def _summarize(output_dir, work_root, mobile_sog_mb, min_points):
     coverage_ratio = _coverage_ratio(selected_frames, target_frames)
     coverage_meets_target = None if coverage_ratio is None else coverage_ratio >= 1.0
     selected_pass = _selected_extraction_pass(extraction_manifest)
+    temporal_target = _temporal_target(extraction_manifest)
 
     return {
         "output": str(output_dir),
@@ -89,6 +90,7 @@ def _summarize(output_dir, work_root, mobile_sog_mb, min_points):
         "extraction_relaxed": extraction_manifest.get("relaxed"),
         "extraction_projection": extraction_manifest.get("projection") or "",
         "extraction_temporal_coverage": selected_pass.get("selected_raw_index_coverage"),
+        "extraction_temporal_target": temporal_target,
         "extraction_temporal_thinned_count": selected_pass.get("temporal_thinned_count"),
         "input_score": (input_quality.get("verdict") or {}).get("score"),
         "sog_mb": score["sog_mb"],
@@ -265,20 +267,29 @@ def _coverage_rank(row):
 
 def _temporal_rank(row):
     value = row.get("extraction_temporal_coverage")
+    target = row.get("extraction_temporal_target") or 0.80
     if value is None:
         return 1
     try:
-        return 2 if float(value) >= 0.80 else 0
+        return 2 if float(value) >= float(target) else 0
     except (TypeError, ValueError):
         return 1
 
 
 def _has_low_temporal_coverage(row):
     value = row.get("extraction_temporal_coverage")
+    target = row.get("extraction_temporal_target") or 0.80
     try:
-        return value is not None and float(value) < 0.80
+        return value is not None and float(value) < float(target)
     except (TypeError, ValueError):
         return False
+
+
+def _temporal_target(extraction_manifest):
+    try:
+        return float(extraction_manifest.get("min_span"))
+    except (TypeError, ValueError):
+        return 0.80
 
 
 def _selected_extraction_pass(extraction_manifest):

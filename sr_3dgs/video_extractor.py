@@ -54,6 +54,15 @@ def _coverage_target(raw_count: int, max_frames: int, min_frames: Optional[int])
     return min(int(raw_count), int(max_frames), target)
 
 
+def _span_target(min_span: Optional[float]) -> float:
+    if min_span is None:
+        return 0.80
+    try:
+        return max(0.0, min(1.0, float(min_span)))
+    except (TypeError, ValueError):
+        return 0.80
+
+
 def _adaptive_thresholds(min_sharpness: float, min_frame_diff: float, adaptive: bool):
     factors = [(1.0, 1.0)]
     if adaptive:
@@ -166,6 +175,42 @@ def _evenly_spaced_indices(length: int, count: int) -> List[int]:
     return [int(round(pos)) for pos in np.linspace(0, length - 1, count)]
 
 
+def _selected_span(stats) -> Optional[float]:
+    value = stats.get("selected_raw_index_coverage")
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _selection_score(stats, target: int, target_span: float):
+    count = int(stats.get("kept_count") or 0)
+    span = _selected_span(stats)
+    span_value = 1.0 if span is None and target_span <= 0 else float(span or 0.0)
+    frame_ratio = 1.0 if target <= 0 else min(1.0, count / max(target, 1))
+    span_ratio = 1.0 if target_span <= 0 else min(1.0, span_value / target_span)
+    balanced_ratio = min(frame_ratio, span_ratio)
+    meets_frames = count >= target
+    meets_span = span_value >= target_span
+    return (
+        meets_frames and meets_span,
+        balanced_ratio,
+        meets_span,
+        meets_frames,
+        frame_ratio,
+        span_ratio,
+        span_value,
+        count,
+    )
+
+
+def _meets_span_target(stats, target_span: float, raw_count: int) -> bool:
+    if target_span <= 0 or raw_count <= 1:
+        return True
+    span = _selected_span(stats)
+    return span is not None and span >= target_span
+
+
 def select_frames_adaptive(
     raw_frames: List[Path],
     *,
@@ -173,12 +218,15 @@ def select_frames_adaptive(
     min_frame_diff: float,
     max_frames: int,
     min_frames: Optional[int] = None,
+    min_span: Optional[float] = 0.80,
     adaptive: bool = True,
 ):
-    """Select raw frames, relaxing thresholds only when coverage is too low."""
+    """Select raw frames, relaxing thresholds when count or timeline coverage is low."""
     raw_frames = [Path(path) for path in raw_frames]
     target = _coverage_target(len(raw_frames), max_frames, min_frames)
+    target_span = _span_target(min_span)
     best = None
+    best_score = None
     chosen = None
     pass_reports = []
 
@@ -190,13 +238,19 @@ def select_frames_adaptive(
             max_frames=max_frames,
         )
         stats["name"] = name
-        stats["meets_target"] = len(selected) >= target
+        span_ok = _meets_span_target(stats, target_span, len(raw_frames))
+        stats["target_span"] = float(target_span)
+        stats["meets_frame_target"] = len(selected) >= target
+        stats["meets_span_target"] = span_ok
+        stats["meets_target"] = stats["meets_frame_target"] and span_ok
         pass_reports.append(stats)
 
         item = (selected, stats)
-        if best is None or len(selected) > len(best[0]):
+        score = _selection_score(stats, target, target_span)
+        if best is None or score > best_score:
             best = item
-        if len(selected) >= target:
+            best_score = score
+        if stats["meets_target"]:
             chosen = item
             break
 
@@ -208,10 +262,15 @@ def select_frames_adaptive(
         "raw_count": len(raw_frames),
         "max_frames": int(max_frames),
         "min_frames": int(target),
+        "min_span": float(target_span),
         "requested_min_sharpness": float(min_sharpness),
         "requested_min_frame_diff": float(min_frame_diff),
         "adaptive": bool(adaptive),
         "selected_count": len(selected),
+        "selected_span": selected_stats.get("selected_raw_index_coverage"),
+        "selected_meets_frame_target": selected_stats.get("meets_frame_target"),
+        "selected_meets_span_target": selected_stats.get("meets_span_target"),
+        "selected_meets_target": selected_stats.get("meets_target"),
         "selected_pass": selected_stats.get("name", ""),
         "relaxed": selected_stats.get("name", "strict") != "strict",
         "passes": pass_reports,
@@ -266,6 +325,7 @@ class VideoFrameExtractor:
                 min_frame_diff: float = 0.02,
                 max_frames: int = 300,
                 min_frames: Optional[int] = 48,
+                min_span: Optional[float] = 0.80,
                 adaptive: bool = True,
                 target_long_edge: int = 1920,
                 start_time: Optional[float] = None,
@@ -279,6 +339,7 @@ class VideoFrameExtractor:
             min_frame_diff: Minimum difference from last kept frame
             max_frames: Maximum frames to extract
             min_frames: Desired minimum kept frames before relaxing filters
+            min_span: Desired selected-frame coverage across the source timeline
             adaptive: Relax quality/diversity thresholds when coverage is low
             target_long_edge: Resize so long edge = this (0 = no resize)
             start_time: Start time in seconds (None = beginning)
@@ -315,6 +376,7 @@ class VideoFrameExtractor:
             min_frame_diff=min_frame_diff,
             max_frames=max_frames,
             min_frames=min_frames,
+            min_span=min_span,
             adaptive=adaptive,
         )
 
@@ -346,10 +408,20 @@ class VideoFrameExtractor:
         print(f"[VideoExtractor] Kept {len(kept_paths)}/{len(raw_frames)} "
                   f"frames ({pct_kept:.1f}%) after quality filter")
         if manifest.get("relaxed"):
+            span = manifest.get("selected_span")
+            span_text = f", span {float(span):.2f}" if span is not None else ""
             print(
                 "[VideoExtractor] Adaptive filter relaxed to "
                 f"{manifest['selected_pass']} for coverage "
-                f"({len(kept_paths)}/{manifest['min_frames']} target frames)."
+                f"({len(kept_paths)}/{manifest['min_frames']} target frames"
+                f"{span_text})."
+            )
+
+        if manifest.get("selected_meets_span_target") is False:
+            print(
+                "[VideoExtractor] WARNING: selected frames cover only "
+                f"{float(manifest.get('selected_span') or 0.0):.2f} of the source "
+                f"timeline; target is {float(manifest.get('min_span') or 0.0):.2f}."
             )
 
         if len(kept_paths) < 15:
@@ -364,6 +436,7 @@ class VideoFrameExtractor:
                                           min_frame_diff: float = 0.01,
                                           max_source_frames: int = 80,
                                           min_source_frames: Optional[int] = 12,
+                                          min_span: Optional[float] = 0.80,
                                           adaptive: bool = True,
                                           face_size: int = 1024,
                                           faces: Tuple[str, ...] = ("front", "right", "back", "left"),
@@ -390,6 +463,7 @@ class VideoFrameExtractor:
             min_frame_diff=min_frame_diff,
             max_frames=max_source_frames,
             min_frames=min_source_frames,
+            min_span=min_span,
             adaptive=adaptive,
         )
 

@@ -54,6 +54,7 @@ class VideoPipelineConfig:
     extract_min_frame_diff: float = 0.015      # Minimum difference between frames
     extract_max_frames: int = 250              # Maximum frames to extract
     extract_min_frames: int = 48               # Coverage target before relaxing filters
+    extract_min_span: float = 0.80             # Timeline coverage target before accepting a pass
     extract_adaptive: bool = True              # Relax filters when coverage is low
     extract_target_long_edge: int = 1920       # Resize while extracting (0 = no resize)
     equirect_face_size: int = 1024
@@ -233,6 +234,7 @@ class VideoPipeline:
                         2,
                         cfg.extract_min_frames // max(1, len(cfg.equirect_faces)),
                     ),
+                    min_span=cfg.extract_min_span,
                     adaptive=cfg.extract_adaptive,
                     face_size=cfg.equirect_face_size,
                     faces=tuple(cfg.equirect_faces),
@@ -246,6 +248,7 @@ class VideoPipeline:
                     min_frame_diff=cfg.extract_min_frame_diff,
                     max_frames=cfg.extract_max_frames,
                     min_frames=cfg.extract_min_frames,
+                    min_span=cfg.extract_min_span,
                     adaptive=cfg.extract_adaptive,
                     target_long_edge=cfg.extract_target_long_edge,
                     start_time=cfg.start_time,

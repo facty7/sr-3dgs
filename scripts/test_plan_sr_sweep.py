@@ -55,7 +55,7 @@ def main():
                 "--strategy",
                 "resize:2",
                 "--extract_variant",
-                "dense:120:360:4:adaptive",
+                "dense:120:360:4:span0.9:adaptive",
                 "--no_showcase",
                 "--plan",
                 str(phone_plan),
@@ -82,11 +82,13 @@ def main():
         assert "--extract_min_frames" in dense_cmd and "120" in dense_cmd, dense_cmd
         assert "--extract_max_frames" in dense_cmd and "360" in dense_cmd, dense_cmd
         assert "--extract_fps" in dense_cmd and "4.0" in dense_cmd, dense_cmd
+        assert "--extract_min_span" in dense_cmd and "0.9" in dense_cmd, dense_cmd
         strict_run = next(
             run for run in phone_data["runs"]
             if run["extraction_variant"].get("name") == "strict64"
         )
         assert "--no_adaptive_extract" in strict_run["command"], strict_run
+        assert "--extract_min_span" in strict_run["command"], strict_run
 
 
 if __name__ == "__main__":

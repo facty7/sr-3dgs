@@ -33,9 +33,9 @@ def _parse_strategy(text):
 
 def _parse_extraction_variant(text):
     parts = text.split(":")
-    if len(parts) not in (3, 4, 5):
+    if len(parts) not in (3, 4, 5, 6):
         raise argparse.ArgumentTypeError(
-            "extraction variant must be name:min_frames:max_frames[:fps][:adaptive|strict]"
+            "extraction variant must be name:min_frames:max_frames[:fps][:span][:adaptive|strict]"
         )
     name, min_frames, max_frames, *rest = parts
     label = _safe_label(name)
@@ -50,28 +50,54 @@ def _parse_extraction_variant(text):
         raise argparse.ArgumentTypeError("extraction frame counts must satisfy 0 < min <= max")
 
     fps = None
+    min_span = None
     adaptive = True
     for item in rest:
         lowered = item.lower()
         if lowered in {"adaptive", "strict"}:
             adaptive = lowered == "adaptive"
             continue
-        if fps is not None:
-            raise argparse.ArgumentTypeError("only one fps value is allowed")
+        explicit_fps = False
+        explicit_span = False
+        if lowered.startswith("span"):
+            explicit_span = True
+            if min_span is not None:
+                raise argparse.ArgumentTypeError("only one span value is allowed")
+            lowered = lowered[4:]
+        elif lowered.startswith("fps"):
+            explicit_fps = True
+            if fps is not None:
+                raise argparse.ArgumentTypeError("only one fps value is allowed")
+            lowered = lowered[3:]
         try:
-            fps = float(item)
+            value = float(lowered if lowered else item)
         except ValueError as exc:
             raise argparse.ArgumentTypeError(
-                "optional extraction value must be fps, adaptive, or strict"
+                "optional extraction value must be fps, span, adaptive, or strict"
             ) from exc
-        if fps <= 0:
-            raise argparse.ArgumentTypeError("fps must be positive")
+        if value <= 0:
+            raise argparse.ArgumentTypeError("fps/span values must be positive")
+        if explicit_span:
+            if value > 1.0:
+                raise argparse.ArgumentTypeError("span must be <= 1.0")
+            min_span = value
+        elif explicit_fps:
+            fps = value
+        elif value <= 1.0:
+            if min_span is not None:
+                raise argparse.ArgumentTypeError("only one span value is allowed")
+            min_span = value
+        elif fps is None:
+            fps = value
+        else:
+            raise argparse.ArgumentTypeError("only one fps and one span value are allowed")
 
     return {
         "name": label,
         "min_frames": min_frames,
         "max_frames": max_frames,
         "fps": fps,
+        "min_span": min_span,
         "adaptive": adaptive,
     }
 
@@ -112,6 +138,8 @@ def _build_command(args, strategy, extraction_variant=None):
         cmd.extend(["--extract_max_frames", str(extraction_variant["max_frames"])])
         if extraction_variant.get("fps") is not None:
             cmd.extend(["--extract_fps", str(extraction_variant["fps"])])
+        if extraction_variant.get("min_span") is not None:
+            cmd.extend(["--extract_min_span", str(extraction_variant["min_span"])])
         if extraction_variant.get("adaptive") is False:
             cmd.append("--no_adaptive_extract")
     if args.projection:
@@ -131,9 +159,9 @@ def _build_command(args, strategy, extraction_variant=None):
 
 def _default_extraction_variants():
     return [
-        {"name": "cover64", "min_frames": 64, "max_frames": 200, "fps": None, "adaptive": True},
-        {"name": "cover96", "min_frames": 96, "max_frames": 300, "fps": None, "adaptive": True},
-        {"name": "strict64", "min_frames": 64, "max_frames": 200, "fps": None, "adaptive": False},
+        {"name": "cover64", "min_frames": 64, "max_frames": 200, "fps": None, "min_span": 0.85, "adaptive": True},
+        {"name": "cover96", "min_frames": 96, "max_frames": 300, "fps": None, "min_span": 0.90, "adaptive": True},
+        {"name": "strict64", "min_frames": 64, "max_frames": 200, "fps": None, "min_span": 0.85, "adaptive": False},
     ]
 
 
@@ -160,7 +188,8 @@ def main():
         action="append",
         type=_parse_extraction_variant,
         help=(
-            "Extraction sweep variant as name:min_frames:max_frames[:fps][:adaptive|strict]. "
+            "Extraction sweep variant as name:min_frames:max_frames[:fps][:span][:adaptive|strict]. "
+            "Values <= 1.0 are treated as min timeline span unless prefixed with fps. "
             "Repeatable."
         ),
     )
