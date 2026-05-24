@@ -40,6 +40,54 @@ def main():
             assert "--sr_scale" in cmd, cmd
             assert "--run" not in cmd, cmd
 
+        phone_plan = Path(tmp) / "phone_plan.json"
+        subprocess.run(
+            [
+                sys.executable,
+                "scripts/plan_sr_sweep.py",
+                "--video",
+                "input_videos/object.mp4",
+                "--preset",
+                "debug",
+                "--phone_coverage_sweep",
+                "--strategy",
+                "off:1",
+                "--strategy",
+                "resize:2",
+                "--extract_variant",
+                "dense:120:360:4:adaptive",
+                "--no_showcase",
+                "--plan",
+                str(phone_plan),
+            ],
+            cwd=str(ROOT),
+            check=True,
+            text=True,
+            capture_output=True,
+        )
+        phone_data = json.loads(phone_plan.read_text(encoding="utf-8"))
+        assert phone_data["phone_coverage_sweep"] is True, phone_data
+        assert len(phone_data["runs"]) == 8, phone_data
+        variants = [run["extraction_variant"].get("name") for run in phone_data["runs"]]
+        assert variants.count("cover64") == 2, variants
+        assert variants.count("cover96") == 2, variants
+        assert variants.count("strict64") == 2, variants
+        assert variants.count("dense") == 2, variants
+        dense_run = next(
+            run for run in phone_data["runs"]
+            if run["extraction_variant"].get("name") == "dense"
+        )
+        dense_cmd = dense_run["command"]
+        assert dense_run["output_name"].startswith("object_dense_"), dense_run
+        assert "--extract_min_frames" in dense_cmd and "120" in dense_cmd, dense_cmd
+        assert "--extract_max_frames" in dense_cmd and "360" in dense_cmd, dense_cmd
+        assert "--extract_fps" in dense_cmd and "4.0" in dense_cmd, dense_cmd
+        strict_run = next(
+            run for run in phone_data["runs"]
+            if run["extraction_variant"].get("name") == "strict64"
+        )
+        assert "--no_adaptive_extract" in strict_run["command"], strict_run
+
 
 if __name__ == "__main__":
     main()

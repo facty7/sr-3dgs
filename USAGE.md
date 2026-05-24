@@ -105,6 +105,22 @@ python scripts/plan_sr_sweep.py \
   --no_showcase
 ```
 
+For ordinary phone captures, include extraction coverage variants in the same
+plan:
+
+```bash
+python scripts/plan_sr_sweep.py \
+  --video input_videos/object.mp4 \
+  --preset standard \
+  --phone_coverage_sweep \
+  --cluster_clean \
+  --no_showcase
+```
+
+This crosses the SR strategies with `cover64`, `cover96`, and `strict64`
+frame-extraction variants. Add custom variants with
+`--extract_variant name:min_frames:max_frames[:fps][:adaptive|strict]`.
+
 Add `--run` only for launching all planned runs.
 
 After the runs finish, summarize the delivery metrics and SR metadata:

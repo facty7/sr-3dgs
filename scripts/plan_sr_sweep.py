@@ -31,18 +31,69 @@ def _parse_strategy(text):
     return {"mode": mode, "model": model, "scale": int(scale)}
 
 
+def _parse_extraction_variant(text):
+    parts = text.split(":")
+    if len(parts) not in (3, 4, 5):
+        raise argparse.ArgumentTypeError(
+            "extraction variant must be name:min_frames:max_frames[:fps][:adaptive|strict]"
+        )
+    name, min_frames, max_frames, *rest = parts
+    label = _safe_label(name)
+    if not label:
+        raise argparse.ArgumentTypeError("extraction variant name cannot be empty")
+    try:
+        min_frames = int(min_frames)
+        max_frames = int(max_frames)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("min_frames and max_frames must be integers") from exc
+    if min_frames <= 0 or max_frames <= 0 or max_frames < min_frames:
+        raise argparse.ArgumentTypeError("extraction frame counts must satisfy 0 < min <= max")
+
+    fps = None
+    adaptive = True
+    for item in rest:
+        lowered = item.lower()
+        if lowered in {"adaptive", "strict"}:
+            adaptive = lowered == "adaptive"
+            continue
+        if fps is not None:
+            raise argparse.ArgumentTypeError("only one fps value is allowed")
+        try:
+            fps = float(item)
+        except ValueError as exc:
+            raise argparse.ArgumentTypeError(
+                "optional extraction value must be fps, adaptive, or strict"
+            ) from exc
+        if fps <= 0:
+            raise argparse.ArgumentTypeError("fps must be positive")
+
+    return {
+        "name": label,
+        "min_frames": min_frames,
+        "max_frames": max_frames,
+        "fps": fps,
+        "adaptive": adaptive,
+    }
+
+
+def _safe_label(text):
+    return "".join(c if c.isalnum() or c in "_-" else "_" for c in str(text))
+
+
 def _scene_name(video_path, output_name):
     if output_name:
         base = output_name
     else:
         base = Path(video_path).stem
-    return "".join(c if c.isalnum() or c in "_-" else "_" for c in base)
+    return _safe_label(base)
 
 
-def _build_command(args, strategy):
+def _build_command(args, strategy, extraction_variant=None):
     suffix = f"{strategy['mode']}_x{strategy['scale']}"
     if strategy["mode"] == "model":
         suffix = f"{strategy['mode']}_{strategy['model'].replace('+', 'p')}_x{strategy['scale']}"
+    if extraction_variant:
+        suffix = f"{extraction_variant['name']}_{suffix}"
     output_name = f"{_scene_name(args.video, args.output_name)}_{suffix}"
     cmd = [
         sys.executable,
@@ -56,6 +107,13 @@ def _build_command(args, strategy):
         "--sr_model", strategy["model"],
         "--sr_scale", str(strategy["scale"]),
     ]
+    if extraction_variant:
+        cmd.extend(["--extract_min_frames", str(extraction_variant["min_frames"])])
+        cmd.extend(["--extract_max_frames", str(extraction_variant["max_frames"])])
+        if extraction_variant.get("fps") is not None:
+            cmd.extend(["--extract_fps", str(extraction_variant["fps"])])
+        if extraction_variant.get("adaptive") is False:
+            cmd.append("--no_adaptive_extract")
     if args.projection:
         cmd.extend(["--projection", args.projection])
     if args.object_mask:
@@ -69,6 +127,14 @@ def _build_command(args, strategy):
     if args.extra_args:
         cmd.extend(args.extra_args)
     return output_name, cmd
+
+
+def _default_extraction_variants():
+    return [
+        {"name": "cover64", "min_frames": 64, "max_frames": 200, "fps": None, "adaptive": True},
+        {"name": "cover96", "min_frames": 96, "max_frames": 300, "fps": None, "adaptive": True},
+        {"name": "strict64", "min_frames": 64, "max_frames": 200, "fps": None, "adaptive": False},
+    ]
 
 
 def main():
@@ -89,6 +155,20 @@ def main():
         type=_parse_strategy,
         help="mode:scale or mode:model:scale. Repeatable.",
     )
+    parser.add_argument(
+        "--extract_variant",
+        action="append",
+        type=_parse_extraction_variant,
+        help=(
+            "Extraction sweep variant as name:min_frames:max_frames[:fps][:adaptive|strict]. "
+            "Repeatable."
+        ),
+    )
+    parser.add_argument(
+        "--phone_coverage_sweep",
+        action="store_true",
+        help="Cross SR strategies with cover64, cover96, and strict64 extraction variants.",
+    )
     parser.add_argument("--plan", default="")
     parser.add_argument("--run", action="store_true")
     parser.add_argument("extra_args", nargs=argparse.REMAINDER)
@@ -100,18 +180,27 @@ def main():
         {"mode": "auto", "model": "real-esrgan", "scale": 2},
         {"mode": "model", "model": "real-esrgan", "scale": 2},
     ]
+    extraction_variants = list(args.extract_variant or [])
+    if args.phone_coverage_sweep:
+        extraction_variants = _default_extraction_variants() + extraction_variants
+    if not extraction_variants:
+        extraction_variants = [None]
+
     plan = {
         "video": args.video,
         "preset": args.preset,
+        "phone_coverage_sweep": bool(args.phone_coverage_sweep),
         "runs": [],
     }
-    for strategy in strategies:
-        output_name, cmd = _build_command(args, strategy)
-        plan["runs"].append({
-            "output_name": output_name,
-            "strategy": strategy,
-            "command": cmd,
-        })
+    for extraction_variant in extraction_variants:
+        for strategy in strategies:
+            output_name, cmd = _build_command(args, strategy, extraction_variant)
+            plan["runs"].append({
+                "output_name": output_name,
+                "strategy": strategy,
+                "extraction_variant": extraction_variant or {},
+                "command": cmd,
+            })
 
     plan_path = Path(args.plan) if args.plan else Path(args.work_dir) / "sr_sweep_plan.json"
     plan_path.parent.mkdir(parents=True, exist_ok=True)
